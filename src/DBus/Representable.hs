@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
@@ -12,6 +13,7 @@ import           DBus.TH
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad
 import           Data.Int
+import qualified Data.Map as Map
 import qualified Data.Text as Text
 import           Data.Word
 
@@ -72,4 +74,17 @@ instance DBusRepresentable a => DBusRepresentable [a]  where
     toRep xs = DBVArray (map toRep xs)
     fromRep (DBVArray xs) = mapM fromRep xs
 
-$(forM [2..2] makeRepresentableTuple)
+type family FromSimpleType (t :: DBusType) :: DBusSimpleType
+type instance FromSimpleType (DBusSimple k) = k
+
+instance ( Ord k
+         , DBusRepresentable k
+         , RepType k ~ DBusSimple r
+         , DBusRepresentable v )
+         => DBusRepresentable (Map.Map k v)  where
+    type RepType (Map.Map k v) = TypeDict (FromSimpleType (RepType k)) (RepType v)
+    toRep m = DBVDict $ map (\(l,r) -> (toRep l, toRep r)) (Map.toList m)
+    fromRep (DBVDict xs) = Map.fromList <$> sequence
+                           (map (\(l,r) -> (,) <$> fromRep l <*> fromRep r) xs)
+
+$(forM [2..20] makeRepresentableTuple)

@@ -94,6 +94,8 @@ data DBusValue :: DBusType -> * where
     DBVVariant    :: SingI t => DBusValue t -> DBusValue TypeVariant
     DBVArray      :: [DBusValue a] -> DBusValue (TypeArray a)
     DBVStruct     :: DBusStruct ts -> DBusValue (TypeStruct ts)
+    DBVDict       :: [(DBusValue ('DBusSimpleType k) ,DBusValue v)]
+                                   -> DBusValue (TypeDict k v)
 
 instance Show (DBusValue a) where
     show (DBVByte       x) = show x
@@ -110,6 +112,7 @@ instance Show (DBusValue a) where
     show (DBVArray      x) = show x
     show (DBVStruct     x) = show x
     show (DBVVariant    (x :: DBusValue t)) = "Variant:" ++ ppType (fromSing (sing :: SDBusType t))
+    show (DBVDict      x) = show x
 
 
 typeOf :: SingI t => DBusValue t -> DBusType
