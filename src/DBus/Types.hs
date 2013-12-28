@@ -28,7 +28,7 @@ import           Data.Word
 newtype ObjectPath = ObjectPath Text.Text deriving (Show, Eq)
 
 data DBusSimpleType
-    = TypeWord8
+    = TypeByte
     | TypeBoolean
     | TypeInt16
     | TypeUInt16
@@ -42,7 +42,7 @@ data DBusSimpleType
       deriving (Show, Read, Eq)
 
 ppSimpleType :: DBusSimpleType -> String
-ppSimpleType TypeWord8      = "Word8"
+ppSimpleType TypeByte      = "Word8"
 ppSimpleType TypeBoolean    = "Boolean"
 ppSimpleType TypeInt16      = "Int16"
 ppSimpleType TypeUInt16     = "UInt16"
@@ -84,7 +84,7 @@ showStruct (StructSingleton x) = [show x]
 showStruct (StructCons x xs) = (show x : showStruct xs)
 
 data DBusValue :: DBusType -> * where
-    DBVByte       :: Word8         -> DBusValue ('DBusSimpleType TypeWord8)
+    DBVByte       :: Word8         -> DBusValue ('DBusSimpleType TypeByte)
     DBVBool       :: Bool          -> DBusValue ('DBusSimpleType TypeBoolean)
     DBVInt16      :: Int16         -> DBusValue ('DBusSimpleType TypeInt16)
     DBVUInt16     :: Word16        -> DBusValue ('DBusSimpleType TypeUInt16)
@@ -138,7 +138,7 @@ class DBusRepresentable a where
     fromRep :: DBusValue (RepType a) -> Maybe a
 
 instance DBusRepresentable Word8 where
-    type RepType Word8  = 'DBusSimpleType TypeWord8
+    type RepType Word8  = 'DBusSimpleType TypeByte
     toRep x = DBVByte x
     fromRep (DBVByte x) = Just x
 
