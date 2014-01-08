@@ -10,12 +10,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module DBus.Types where
+module DBus.ExtTypes where
 
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad
 import qualified DBus as DBus
 import           DBus.Client as DBs
+import qualified Data.ByteString as BS
 import           Data.Function (fix)
 import           Data.Int
 import           Data.List (intercalate)
@@ -24,6 +25,7 @@ import           Data.Singletons.Bool
 import           Data.Singletons.TH
 import qualified Data.Text as Text
 import           Data.Word
+import           Unsafe.Coerce (unsafeCoerce)
 
 newtype ObjectPath = ObjectPath Text.Text deriving (Show, Eq)
 
@@ -32,27 +34,31 @@ data DBusSimpleType
     | TypeBoolean
     | TypeInt16
     | TypeUInt16
+    | TypeInt32
+    | TypeUInt32
     | TypeInt64
     | TypeUInt64
     | TypeDouble
     | TypeUnixFD
     | TypeString
     | TypeObjectPath
-    | TypeSignatuer
+    | TypeSignature
       deriving (Show, Read, Eq)
 
 ppSimpleType :: DBusSimpleType -> String
-ppSimpleType TypeByte      = "Word8"
+ppSimpleType TypeByte       = "Word8"
 ppSimpleType TypeBoolean    = "Boolean"
 ppSimpleType TypeInt16      = "Int16"
 ppSimpleType TypeUInt16     = "UInt16"
+ppSimpleType TypeInt32      = "Int32"
+ppSimpleType TypeUInt32     = "UInt32"
 ppSimpleType TypeInt64      = "Int64"
 ppSimpleType TypeUInt64     = "UInt64"
 ppSimpleType TypeDouble     = "Double"
 ppSimpleType TypeUnixFD     = "UnixFD"
 ppSimpleType TypeString     = "String"
 ppSimpleType TypeObjectPath = "ObjectPath"
-ppSimpleType TypeSignatuer  = "Signatuer"
+ppSimpleType TypeSignature  = "Signature"
 
 data DBusType
     = DBusSimpleType DBusSimpleType
@@ -70,11 +76,15 @@ ppType (TypeDict k v) = "{" ++ ppSimpleType k ++ " => " ++ ppType v ++ "}"
 ppType TypeVariant = "Variant"
 
 genSingletons [''DBusSimpleType, ''DBusType]
-singDecideInstances [''DBusSimpleType, ''DBusType]
+singEqInstances [''DBusSimpleType, ''DBusType]
+-- singDecideInstances [''DBusSimpleType]
 
 data DBusStruct :: [DBusType] -> * where
     StructSingleton :: DBusValue a -> DBusStruct '[a]
     StructCons :: DBusValue a -> DBusStruct as -> DBusStruct (a ': as)
+
+data SomeDBusStruct where
+    SDBS :: SingI ts => DBusStruct ts -> SomeDBusStruct
 
 instance Show (DBusStruct a) where
     show xs = show $ showStruct xs
@@ -88,34 +98,64 @@ data DBusValue :: DBusType -> * where
     DBVBool       :: Bool          -> DBusValue ('DBusSimpleType TypeBoolean)
     DBVInt16      :: Int16         -> DBusValue ('DBusSimpleType TypeInt16)
     DBVUInt16     :: Word16        -> DBusValue ('DBusSimpleType TypeUInt16)
+    DBVInt32      :: Int32         -> DBusValue ('DBusSimpleType TypeInt32)
+    DBVUInt32     :: Word32        -> DBusValue ('DBusSimpleType TypeUInt32)
     DBVInt64      :: Int64         -> DBusValue ('DBusSimpleType TypeInt64)
     DBVUint64     :: Word64        -> DBusValue ('DBusSimpleType TypeUInt64)
     DBVDouble     :: Double        -> DBusValue ('DBusSimpleType TypeDouble)
     DBVUnixFD     :: Word32        -> DBusValue ('DBusSimpleType TypeUnixFD)
     DBVString     :: Text.Text     -> DBusValue ('DBusSimpleType TypeString)
     DBVObjectPath :: ObjectPath    -> DBusValue ('DBusSimpleType TypeObjectPath)
-    DBVSignature  :: [DBusType]    -> DBusValue ('DBusSimpleType TypeSignatuer)
+    DBVSignature  :: [DBusType]    -> DBusValue ('DBusSimpleType TypeSignature)
     DBVVariant    :: (SingI t )    => DBusValue t -> DBusValue TypeVariant
     DBVArray      :: [DBusValue a] -> DBusValue (TypeArray a)
+    DBVByteArray  :: BS.ByteString -> DBusValue (TypeArray ('DBusSimpleType TypeByte))
     DBVStruct     :: DBusStruct ts -> DBusValue (TypeStruct ts)
     DBVDict       :: [(DBusValue ('DBusSimpleType k) ,DBusValue v)]
                                    -> DBusValue (TypeDict k v)
 
-fromVariant :: SingI t => DBusValue TypeVariant -> Maybe (DBusValue t)
-fromVariant (DBVVariant (v :: DBusValue s))
+-- TODO: Reinstate once https://github.com/goldfirere/singletons/issues/2 is
+-- resolved
+
+-- fromVariant :: SingI t => DBusValue TypeVariant -> Maybe (DBusValue t)
+-- fromVariant (DBVVariant (v :: DBusValue s))
+--     = fix $ \(_ :: Maybe (DBusValue t)) ->
+--         let ss = (sing :: Sing s)
+--             st = (sing :: Sing t)
+--         in case (ss %~ st) of
+--             Proved Refl -- Bring into scope a proof that s~t
+--                 -> Just v
+--             Disproved _ -> Nothing
+
+castDBV :: (SingI s, SingI t) => DBusValue s -> Maybe (DBusValue t)
+castDBV (v :: DBusValue s)
     = fix $ \(_ :: Maybe (DBusValue t)) ->
         let ss = (sing :: Sing s)
             st = (sing :: Sing t)
-        in case (ss %~ st) of
-            Proved Refl -- Bring into scope a proof that s~t
-                -> Just v
-            Disproved _ -> Nothing
+        in case (ss %:== st) of
+            STrue -> Just (unsafeCoerce v)
+            SFalse -> Nothing
+
+data SomeDBusValue where
+    DBV :: SingI t => DBusValue t -> SomeDBusValue
+
+dbusValue :: SingI t => SomeDBusValue -> Maybe (DBusValue t)
+dbusValue (DBV v) = castDBV v
+
+dbusSValue :: SingI t => SomeDBusValue -> Maybe (DBusValue ('DBusSimpleType t))
+dbusSValue (DBV v) = castDBV v
+
+-- | Extract a DBusValue from a Variant iff the type matches or return nothing
+fromVariant :: SingI t => DBusValue TypeVariant -> Maybe (DBusValue t)
+fromVariant (DBVVariant v) = castDBV v
 
 instance Show (DBusValue a) where
     show (DBVByte       x) = show x
     show (DBVBool       x) = show x
     show (DBVInt16      x) = show x
     show (DBVUInt16     x) = show x
+    show (DBVInt32      x) = show x
+    show (DBVUInt32     x) = show x
     show (DBVInt64      x) = show x
     show (DBVUint64     x) = show x
     show (DBVDouble     x) = show x
@@ -124,6 +164,7 @@ instance Show (DBusValue a) where
     show (DBVObjectPath x) = show x
     show (DBVSignature  x) = show x
     show (DBVArray      x) = show x
+    show (DBVByteArray  x) = show x
     show (DBVStruct     x) = show x
     show (DBVVariant    (x :: DBusValue t)) = "Variant:" ++ ppType (fromSing (sing :: SDBusType t)) ++ "=" ++ show x
     show (DBVDict      x) = show x
@@ -157,6 +198,16 @@ instance DBusRepresentable Word16 where
     toRep x = DBVUInt16 x
     fromRep (DBVUInt16 x) = Just x
 
+instance DBusRepresentable Int32 where
+    type RepType Int32 = 'DBusSimpleType TypeInt32
+    toRep x = DBVInt32 x
+    fromRep (DBVInt32 x) = Just x
+
+instance DBusRepresentable Word32 where
+    type RepType Word32 = 'DBusSimpleType TypeUInt32
+    toRep x = DBVUInt32 x
+    fromRep (DBVUInt32 x) = Just x
+
 instance DBusRepresentable Int64 where
     type RepType Int64 = 'DBusSimpleType TypeInt64
     toRep x = DBVInt64 x
@@ -172,11 +223,6 @@ instance DBusRepresentable Double where
     toRep x = DBVDouble x
     fromRep (DBVDouble x) = Just x
 
-instance DBusRepresentable Word32 where
-    type RepType Word32 = 'DBusSimpleType TypeUnixFD
-    toRep x = DBVUnixFD x
-    fromRep (DBVUnixFD x) = Just x
-
 instance DBusRepresentable Text.Text where
     type RepType Text.Text = 'DBusSimpleType TypeString
     toRep x = DBVString x
@@ -187,10 +233,18 @@ instance DBusRepresentable ObjectPath where
     toRep x = DBVObjectPath x
     fromRep (DBVObjectPath x) = Just x
 
-instance DBusRepresentable a => DBusRepresentable [a]  where
+instance ( DBusRepresentable a , SingI (RepType a))
+         => DBusRepresentable [a]  where
     type RepType [a] = TypeArray (RepType a)
-    toRep xs = DBVArray (map toRep xs)
+    toRep xs = DBVArray $ map toRep xs
     fromRep (DBVArray xs) = mapM fromRep xs
+    fromRep (DBVByteArray bs) = fromRep . DBVArray . map DBVByte $ BS.unpack bs
+
+instance DBusRepresentable a => DBusRepresentable BS.ByteString  where
+    type RepType BS.ByteString = TypeArray ('DBusSimpleType  TypeByte)
+    toRep bs = DBVByteArray bs
+    fromRep (DBVByteArray bs) = Just bs
+    fromRep (DBVArray bs) = BS.pack <$> mapM fromRep bs
 
 type family FromSimpleType (t :: DBusType) :: DBusSimpleType
 type instance FromSimpleType ('DBusSimpleType k) = k

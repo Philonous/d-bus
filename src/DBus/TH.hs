@@ -7,7 +7,7 @@ module DBus.TH where
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad
-import DBus.Types
+import DBus.ExtTypes
 import Data.Singletons (SingI)
 import Language.Haskell.TH
 
