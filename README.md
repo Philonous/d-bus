@@ -1,4 +1,4 @@
-dbus-magic
+dbus-ext
 =====
 
-extended magic for dbus
+dependently typed interface to dbus
