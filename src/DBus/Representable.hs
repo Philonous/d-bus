@@ -7,7 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module DBus.Representable where
 
-import           DBus.Types
+import           DBus.ExtTypes
 import           DBus.TH
 
 import           Control.Applicative ((<$>), (<*>))

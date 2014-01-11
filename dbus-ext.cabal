@@ -1,7 +1,7 @@
-name:                dbus-magic
+name:                dbus-ext
 version:             0.0.0
-synopsis:            extended magic for dbus
-description:         extended magic for dbus
+synopsis:            Dependently typed interface to dbus
+description:         Dependently typed interface to dbus
 license:             BSD3
 license-file:        LICENSE
 author:              Philipp Balzarek
@@ -15,11 +15,12 @@ library
   hs-source-dirs:    src/
 --  ghc-options:       -O2
   exposed-modules:   DBus.ExtTypes
-                   , DBus.Representable
+--                   , DBus.Representable
                    , DBus.TH
-                   , DBus.Marshal
+                   , Bindings
+--                   , DBus.Marshal
   build-depends:     base >= 4 && <5
-                   , dbus
+                   , dbus >= 0.10.5
                    , bytestring
                    , containers
                    , ghc-prim
@@ -28,3 +29,7 @@ library
                    , template-haskell
                    , text
                    , vector
+                   , attoparsec
+--  extra-libraries:   dbus-1
+  pkgconfig-depends: dbus-1
+  build-tools:       c2hs
