@@ -20,7 +20,7 @@ library
                    , Bindings
 --                   , DBus.Marshal
   build-depends:     base >= 4 && <5
-                   , dbus >= 0.10.5
+                   , DBus >= 0.5
                    , bytestring
                    , containers
                    , ghc-prim
@@ -30,6 +30,3 @@ library
                    , text
                    , vector
                    , attoparsec
---  extra-libraries:   dbus-1
-  pkgconfig-depends: dbus-1
-  build-tools:       c2hs

@@ -15,7 +15,6 @@ module DBus.ExtTypes where
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad
 import qualified DBus as DBus
-import           DBus.Client as DBs
 import qualified Data.ByteString as BS
 import           Data.Function (fix)
 import           Data.Int
@@ -66,6 +65,7 @@ data DBusType
     | TypeStruct [DBusType]
     | TypeDict DBusSimpleType DBusType
     | TypeVariant
+    | TypeDictEntry DBusSimpleType DBusType
       deriving (Show, Read, Eq)
 
 ppType :: DBusType -> String
@@ -73,6 +73,7 @@ ppType (DBusSimpleType t) = ppSimpleType t
 ppType (TypeArray ts) = "[" ++ ppType ts ++ "]"
 ppType (TypeStruct ts) = "(" ++ intercalate "," (ppType <$> ts) ++ ")"
 ppType (TypeDict k v) = "{" ++ ppSimpleType k ++ " => " ++ ppType v ++ "}"
+ppType (TypeDictEntry k v) = "<" ++ ppSimpleType k ++ " => " ++ ppType v ++ ">"
 ppType TypeVariant = "Variant"
 
 genSingletons [''DBusSimpleType, ''DBusType]
