@@ -1,21 +1,22 @@
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module DBus.ExtTypes where
 
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad
-import qualified DBus as DBus
 import qualified Data.ByteString as BS
+import           Data.Data(Data)
 import           Data.Function (fix)
 import           Data.Int
 import           Data.List (intercalate)
@@ -23,6 +24,7 @@ import qualified Data.Map as Map
 import           Data.Singletons.Bool
 import           Data.Singletons.TH
 import qualified Data.Text as Text
+import           Data.Typeable(Typeable)
 import           Data.Word
 import           Unsafe.Coerce (unsafeCoerce)
 
@@ -42,7 +44,7 @@ data DBusSimpleType
     | TypeString
     | TypeObjectPath
     | TypeSignature
-      deriving (Show, Read, Eq)
+      deriving (Show, Read, Eq, Data, Typeable)
 
 ppSimpleType :: DBusSimpleType -> String
 ppSimpleType TypeByte       = "Word8"
@@ -66,7 +68,7 @@ data DBusType
     | TypeDict DBusSimpleType DBusType
     | TypeVariant
     | TypeDictEntry DBusSimpleType DBusType
-      deriving (Show, Read, Eq)
+      deriving (Show, Read, Eq, Data, Typeable)
 
 ppType :: DBusType -> String
 ppType (DBusSimpleType t) = ppSimpleType t
