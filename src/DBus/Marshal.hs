@@ -52,7 +52,6 @@ structToArgs (STypeStruct (SCons t SNil)) (StructSingleton x) = [toArg' t x]
 structToArgs (STypeStruct (SCons t ts)) (StructCons x xs)
     = toArg' t x : structToArgs (STypeStruct ts) xs
 
-
 fromArg :: DBus.Arg -> SomeDBusValue
 fromArg (DBus.Boolean x) = DBV $ DBVBool  x
 fromArg (DBus.Byte   x) = DBV $ DBVByte   x
