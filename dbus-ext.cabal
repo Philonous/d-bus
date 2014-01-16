@@ -14,30 +14,36 @@ cabal-version:       >=1.8
 library
   hs-source-dirs:    src/
 --  ghc-options:       -O2
-  exposed-modules:   DBus.ExtTypes
+  exposed-modules:   DBus.Types
                    , DBus.Representable
                    , DBus.TH
 --                   , Bindings
                    , DBus.Introspect
                    , DBus.Signature
+                   , DBus.Object
+                   , DBus.Mainloop
+                   , DBus
 --                   , DBus.Marshal
   build-depends:     base >= 4 && <5
-                   , DBus >= 0.5
+--                   , DBus >= 0.5
+                   , attoparsec
+                   , blaze-builder
                    , bytestring
+                   , conduit
                    , containers
-                   , ghc-prim
                    , singletons
+                   , stm
                    , stunclient
                    , template-haskell
                    , text
+                   , transformers
                    , vector
-                   , attoparsec
+                   , xml-conduit
                    , xml-picklers
                    , xml-types
-                   , conduit
-                   , xml-conduit
-                   , blaze-builder
-                   , transformers
+                   , binary >= 0.7
+                   , mtl
+                   , data-binary-ieee754
 
 test-suite tests
   type:              exitcode-stdio-1.0
