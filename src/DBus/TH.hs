@@ -7,7 +7,7 @@ module DBus.TH where
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad
-import DBus.ExtTypes
+import DBus.Types
 import Data.Singletons (SingI)
 import Language.Haskell.TH
 
@@ -61,10 +61,10 @@ makeRepresentable name = do
             NewtypeD _ _ tvs c _ -> (length tvs, tyVarName <$> tvs, [c])
             DataD _ _ tvs cs _ -> (length tvs, tyVarName <$> tvs, cs)
         ctx1 = mapM (classP ''SingI . (:[]) . appT (conT ''RepType)) (varT <$> (relevantTyVars cons))
-        ctx2 = mapM (classP ''DBusRepresentable . (:[])) (varT <$> relevantTyVars cons)
+        ctx2 = mapM (classP ''Representable . (:[])) (varT <$> relevantTyVars cons)
         ctx = liftM2 (++) ctx1 ctx2
         fullType = (foldl appT (conT name) (varT <$> tyVarNames))
-        iHead = appT (conT ''DBusRepresentable) fullType
+        iHead = appT (conT ''Representable) fullType
         cs = map fromConstr cons
     (repType, toClauses, fromClauses) <-  case all (null . snd) cs of
         True -> enumerate $ map fst cs
@@ -168,13 +168,13 @@ makeRepresentable name = do
                   in (pats, bs)
                )
 
--- TODO: Fold into makeDBusRepresentable
+-- TODO: Fold into makeRepresentable
 makeRepresentableTuple :: Int -> Q Dec
 makeRepresentableTuple num = do
     let names = take num $ map (varT . mkName . (:[])) ['a' .. 'z']
-        ctx = sequence $ classP ''DBusRepresentable . (:[]) <$> names
+        ctx = sequence $ classP ''Representable . (:[]) <$> names
         tp = (foldl appT (tupleT num) names)
-        iHead = appT (conT ''DBusRepresentable)
+        iHead = appT (conT ''Representable)
                      (foldl appT (tupleT num) names)
         tpList = foldr (appT . appT promotedConsT) promotedNilT
                  (appT (conT ''RepType) <$> names)

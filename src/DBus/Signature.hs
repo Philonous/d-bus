@@ -13,10 +13,9 @@ import qualified Data.IntMap as IMap
 import           Data.Monoid
 import qualified Data.Text as Text
 
-import           DBus.ExtTypes
+import           DBus.Types
 
-
-
+stToSignature :: DBusSimpleType -> Char
 stToSignature TypeByte       = 'y'
 stToSignature TypeBoolean    = 'b'
 stToSignature TypeInt16      = 'n'

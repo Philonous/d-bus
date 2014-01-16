@@ -11,15 +11,18 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module DBus.ExtTypes where
+module DBus.Types where
 
 import           Control.Applicative ((<$>), (<*>))
+import           Control.Concurrent
+import           Control.Concurrent.STM
 import           Control.Monad
+import           Control.Monad.Trans.Error
 import qualified Data.ByteString as BS
 import           Data.Data(Data)
-import           Data.Function (fix)
+import           Data.Function (fix, on)
 import           Data.Int
-import           Data.List (intercalate)
+import           Data.List
 import qualified Data.Map as Map
 import           Data.Singletons.Bool
 import           Data.Singletons.TH
@@ -28,7 +31,26 @@ import           Data.Typeable(Typeable)
 import           Data.Word
 import           Unsafe.Coerce (unsafeCoerce)
 
-newtype ObjectPath = ObjectPath Text.Text deriving (Show, Eq)
+-- import qualified DBus.Connection as DBus
+-- import qualified DBus.Message as DBus
+
+
+newtype ObjectPath = ObjectPath {fromObjectPath :: [Text.Text]}
+                         deriving (Eq, Data, Typeable)
+
+-- | Parse an object path. Contrary to the standard, empty path parts are ignored
+objectPath = ObjectPath . filter (not . Text.null) . Text.splitOn "/"
+objectPathToText (ObjectPath o) = if null o then "/"
+                                            else Text.intercalate "/" o
+
+instance Show ObjectPath where
+    show = Text.unpack . objectPathToText
+
+stripObjectPrefix :: ObjectPath -> ObjectPath -> Maybe ObjectPath
+stripObjectPrefix (ObjectPath pre) (ObjectPath x) = ObjectPath <$>
+                                                      stripPrefix pre x
+
+isRoot (ObjectPath p) = null p
 
 data DBusSimpleType
     = TypeByte
@@ -68,6 +90,9 @@ data DBusType
     | TypeDict DBusSimpleType DBusType
     | TypeVariant
     | TypeDictEntry DBusSimpleType DBusType
+    | TypeUnit -- TODO: Remove
+      -- Unit isn't actually a DBus type. It is included
+      -- to make it easier to use methods without a return value
       deriving (Show, Read, Eq, Data, Typeable)
 
 ppType :: DBusType -> String
@@ -77,9 +102,23 @@ ppType (TypeStruct ts) = "(" ++ intercalate "," (ppType <$> ts) ++ ")"
 ppType (TypeDict k v) = "{" ++ ppSimpleType k ++ " => " ++ ppType v ++ "}"
 ppType (TypeDictEntry k v) = "<" ++ ppSimpleType k ++ " => " ++ ppType v ++ ">"
 ppType TypeVariant = "Variant"
+ppType TypeUnit = "()"
 
-genSingletons [''DBusSimpleType, ''DBusType]
-singEqInstances [''DBusSimpleType, ''DBusType]
+data Parity = Null
+            | Arg Parity
+              deriving (Eq, Show, Data, Typeable)
+
+type family ArgsOf x :: Parity
+type instance ArgsOf (IO x) = 'Null
+type instance ArgsOf (a -> b) = 'Arg (ArgsOf b)
+
+infixr 0 :->
+data MethodDescription parity where
+    (:->) :: Text.Text -> MethodDescription n -> MethodDescription (Arg n)
+    Result :: Text.Text -> MethodDescription Null
+
+genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
+singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]
 -- singDecideInstances [''DBusSimpleType]
 
 data DBusStruct :: [DBusType] -> * where
@@ -116,6 +155,11 @@ data DBusValue :: DBusType -> * where
     DBVStruct     :: DBusStruct ts -> DBusValue (TypeStruct ts)
     DBVDict       :: [(DBusValue ('DBusSimpleType k) ,DBusValue v)]
                                    -> DBusValue (TypeDict k v)
+    -- TODO: Remove
+
+    -- Unit isn't an actual DBus type and is included only for use with methods
+    -- that don't return a value
+    DBVUnit       :: DBusValue TypeUnit
 
 -- TODO: Reinstate once https://github.com/goldfirere/singletons/issues/2 is
 -- resolved
@@ -171,111 +215,71 @@ instance Show (DBusValue a) where
     show (DBVStruct     x) = show x
     show (DBVVariant    (x :: DBusValue t)) = "Variant:" ++ ppType (fromSing (sing :: SDBusType t)) ++ "=" ++ show x
     show (DBVDict      x) = show x
-
+    show (DBVUnit       ) = "DBVUnit"
 
 typeOf :: SingI t => DBusValue t -> DBusType
 typeOf (_ :: DBusValue a) = fromSing (sing :: SDBusType a)
 
-class DBusRepresentable a where
+class Representable a where
     type RepType a :: DBusType
     toRep :: a -> DBusValue (RepType a)
     fromRep :: DBusValue (RepType a) -> Maybe a
 
-instance DBusRepresentable Word8 where
-    type RepType Word8  = 'DBusSimpleType TypeByte
-    toRep x = DBVByte x
-    fromRep (DBVByte x) = Just x
+------------------------------------------------
+-- Objects
+------------------------------------------------
+data MethodWrapper av rv where
+    MReturn :: SingI t => IO (DBusValue t) -> MethodWrapper '[] t
+    MAsk    :: SingI t => (DBusValue t -> MethodWrapper avs rv )
+                       -> MethodWrapper (t ': avs) rv
 
-instance DBusRepresentable Bool where
-    type RepType Bool = 'DBusSimpleType TypeBoolean
-    toRep x = DBVBool x
-    fromRep (DBVBool x) = Just x
+type family ArgParity (x :: [DBusType]) :: Parity
+type instance ArgParity '[] = 'Null
+type instance ArgParity (x ': xs) = Arg (ArgParity xs)
 
-instance DBusRepresentable Int16 where
-    type RepType Int16 = 'DBusSimpleType TypeInt16
-    toRep x = DBVInt16 x
-    fromRep (DBVInt16 x) = Just x
+data Method where
+    Method :: (SingI avs, SingI t) =>
+              MethodWrapper avs t
+           -> Text.Text
+           -> MethodDescription (ArgParity avs)
+           -> Method
 
-instance DBusRepresentable Word16 where
-    type RepType Word16 = 'DBusSimpleType TypeUInt16
-    toRep x = DBVUInt16 x
-    fromRep (DBVUInt16 x) = Just x
 
-instance DBusRepresentable Int32 where
-    type RepType Int32 = 'DBusSimpleType TypeInt32
-    toRep x = DBVInt32 x
-    fromRep (DBVInt32 x) = Just x
+data Annotation = Annotation { annotationName :: Text.Text
+                             , annotationValue :: Text.Text
+                             } deriving (Eq, Show, Data, Typeable)
 
-instance DBusRepresentable Word32 where
-    type RepType Word32 = 'DBusSimpleType TypeUInt32
-    toRep x = DBVUInt32 x
-    fromRep (DBVUInt32 x) = Just x
+data Interface = Interface { interfaceName :: Text.Text
+                           , interfaceMethods :: [Method]
+                           , interfaceAnnotations :: [Annotation]
+                           }
 
-instance DBusRepresentable Int64 where
-    type RepType Int64 = 'DBusSimpleType TypeInt64
-    toRep x = DBVInt64 x
-    fromRep (DBVInt64 x) = Just x
+instance Eq Interface where
+    (==) = (==) `on` interfaceName
 
-instance DBusRepresentable Word64 where
-    type RepType Word64 = 'DBusSimpleType TypeUInt64
-    toRep x = DBVUint64 x
-    fromRep (DBVUint64 x) = Just x
+data Object = Object { objectObjectPath :: ObjectPath
+                     , objectInterfaces :: [Interface]
+                     , objectSubObjects :: [Object]
+                     }
 
-instance DBusRepresentable Double where
-    type RepType Double = 'DBusSimpleType TypeDouble
-    toRep x = DBVDouble x
-    fromRep (DBVDouble x) = Just x
+--------------------------------------------------
+-- Connection and Message
+--------------------------------------------------
 
-instance DBusRepresentable Text.Text where
-    type RepType Text.Text = 'DBusSimpleType TypeString
-    toRep x = DBVString x
-    fromRep (DBVString x) = Just x
+data MsgError = MsgError { errorName :: Text.Text
+                         , errorText :: Text.Text
+                         }
 
-instance DBusRepresentable ObjectPath where
-    type RepType ObjectPath = 'DBusSimpleType TypeObjectPath
-    toRep x = DBVObjectPath x
-    fromRep (DBVObjectPath x) = Just x
+instance Error MsgError where
+    strMsg str = MsgError { errorName = "org.freedesktop.DBus.Error.Failed"
+                          , errorText = Text.pack str
+                          }
 
-instance ( DBusRepresentable a , SingI (RepType a))
-         => DBusRepresentable [a]  where
-    type RepType [a] = TypeArray (RepType a)
-    toRep xs = DBVArray $ map toRep xs
-    fromRep (DBVArray xs) = mapM fromRep xs
-    fromRep (DBVByteArray bs) = fromRep . DBVArray . map DBVByte $ BS.unpack bs
 
-instance DBusRepresentable a => DBusRepresentable BS.ByteString  where
-    type RepType BS.ByteString = TypeArray ('DBusSimpleType  TypeByte)
-    toRep bs = DBVByteArray bs
-    fromRep (DBVByteArray bs) = Just bs
-    fromRep (DBVArray bs) = BS.pack <$> mapM fromRep bs
 
-type family FromSimpleType (t :: DBusType) :: DBusSimpleType
-type instance FromSimpleType ('DBusSimpleType k) = k
-
-instance ( Ord k
-         , DBusRepresentable k
-         , RepType k ~ 'DBusSimpleType r
-         , DBusRepresentable v )
-         => DBusRepresentable (Map.Map k v)  where
-    type RepType (Map.Map k v) = TypeDict (FromSimpleType (RepType k)) (RepType v)
-    toRep m = DBVDict $ map (\(l,r) -> (toRep l, toRep r)) (Map.toList m)
-    fromRep (DBVDict xs) = Map.fromList <$> sequence
-                           (map (\(l,r) -> (,) <$> fromRep l <*> fromRep r) xs)
-
-instance ( DBusRepresentable l
-         , DBusRepresentable r
-         , SingI (RepType l)
-         , SingI (RepType r))
-         => DBusRepresentable (Either l r) where
-    type RepType (Either l r) = TypeStruct '[ 'DBusSimpleType TypeBoolean
-                                            , TypeVariant]
-    toRep (Left l) = DBVStruct ( StructCons (DBVBool False) $
-                                 StructSingleton (DBVVariant (toRep l)))
-    toRep (Right r) = DBVStruct ( StructCons (DBVBool True) $
-                                 StructSingleton (DBVVariant (toRep r)))
-    fromRep (DBVStruct ((StructCons (DBVBool False)
-              (StructSingleton r))))
-             = Left <$> (fromRep =<< fromVariant r)
-    fromRep (DBVStruct ((StructCons (DBVBool True)
-              (StructSingleton r))))
-             = Right <$> (fromRep =<< fromVariant r)
+data Connection = Connection { primConnection :: () -- DBus.Connection
+                             , answerSlots :: TVar (Map.Map Word32
+                                                    (TMVar (Either MsgError
+                                                                  SomeDBusValue)))
+                             , mainLoop :: ThreadId
+                             }
