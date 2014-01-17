@@ -97,15 +97,25 @@ signature = AP.choice [ AP.char 'v' >> return TypeVariant
                       ]
 
 eitherParseSig :: BS.ByteString -> Either Text.Text DBusType
-eitherParseSig s = case AP.eitherResult $ AP.parse signature s of
+eitherParseSig s = case AP.parseOnly signature s of
     Left e -> Left $ Text.pack e
     Right r -> Right r
 
 parseSig :: BS.ByteString -> Maybe DBusType
-parseSig = AP.maybeResult . AP.parse signature
+parseSig s = case eitherParseSig s of
+    Left _ -> Nothing
+    Right r -> Just r
+
+eitherParseSigs :: BS.ByteString -> Either Text.Text [DBusType]
+eitherParseSigs s = case AP.parseOnly (AP.many' signature) s of
+    Left e -> Left $ Text.pack e
+    Right r -> Right r
 
 parseSigs :: BS.ByteString -> Maybe [DBusType]
-parseSigs = AP.maybeResult . AP.parse (AP.many1 signature)
+parseSigs s = case eitherParseSigs s of
+    Left _ -> Nothing
+    Right r -> Just r
+
 
 -- fromSignature (v:vs) = TypeVariant :
 -- fromSignature "v" = Just TypeVariant

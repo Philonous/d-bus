@@ -23,9 +23,12 @@ import           Data.Data(Data)
 import           Data.Function (fix, on)
 import           Data.Int
 import           Data.List
+import           Data.List (intercalate)
 import qualified Data.Map as Map
 import           Data.Singletons.Bool
+import           Data.Singletons.List
 import           Data.Singletons.TH
+import           Data.Singletons (withSingI)
 import qualified Data.Text as Text
 import           Data.Typeable(Typeable)
 import           Data.Word
@@ -125,15 +128,22 @@ data DBusStruct :: [DBusType] -> * where
     StructSingleton :: DBusValue a -> DBusStruct '[a]
     StructCons :: DBusValue a -> DBusStruct as -> DBusStruct (a ': as)
 
+instance Eq (DBusStruct t) where
+    StructSingleton x == StructSingleton y = x == y
+    StructCons x xs == StructCons y ys =
+        x == y && xs == ys
+
 data SomeDBusStruct where
     SDBS :: SingI ts => DBusStruct ts -> SomeDBusStruct
 
-instance Show (DBusStruct a) where
-    show xs = show $ showStruct xs
+instance SingI a => Show (DBusStruct a) where
+    show xs = showStruct sing xs
 
-showStruct :: DBusStruct a -> [String]
-showStruct (StructSingleton x) = [show x]
-showStruct (StructCons x xs) = (show x : showStruct xs)
+showStruct :: Sing a -> DBusStruct a -> String
+showStruct (SCons t SNil) (StructSingleton x) =
+    withSingI t $ "StructSingleton (" ++ show x ++ ")"
+showStruct (SCons t ts ) (StructCons x xs) =
+    withSingI t $ "StructCons (" ++ show x  ++ ") (" ++ showStruct ts xs ++ ")"
 
 data DBusValue :: DBusType -> * where
     DBVByte       :: Word8         -> DBusValue ('DBusSimpleType TypeByte)
@@ -161,6 +171,38 @@ data DBusValue :: DBusType -> * where
     -- that don't return a value
     DBVUnit       :: DBusValue TypeUnit
 
+
+instance Eq (DBusValue t) where
+    DBVByte       x ==  DBVByte       y = x == y
+    DBVBool       x ==  DBVBool       y = x == y
+    DBVInt16      x ==  DBVInt16      y = x == y
+    DBVUInt16     x ==  DBVUInt16     y = x == y
+    DBVInt32      x ==  DBVInt32      y = x == y
+    DBVUInt32     x ==  DBVUInt32     y = x == y
+    DBVInt64      x ==  DBVInt64      y = x == y
+    DBVUint64     x ==  DBVUint64     y = x == y
+    DBVDouble     x ==  DBVDouble     y = x == y
+    DBVUnixFD     x ==  DBVUnixFD     y = x == y
+    DBVString     x ==  DBVString     y = x == y
+    DBVObjectPath x ==  DBVObjectPath y = x == y
+    DBVSignature  x ==  DBVSignature  y = x == y
+    DBVVariant (x ::DBusValue s1) ==  DBVVariant (y ::DBusValue s2) =
+        let xt = sing :: Sing s1
+            yt = sing :: Sing s2
+        in case xt %:== yt of -- Should be %~
+           STrue  -> (unsafeCoerce x :: DBusValue t) == (unsafeCoerce y)
+           SFalse -> False
+
+    DBVArray      x ==  DBVArray      y = x == y
+    DBVByteArray  x ==  DBVByteArray  y = x == y
+    DBVStruct     x ==  DBVStruct     y = x == y
+    DBVDict       x ==  DBVDict       y = x == y
+    DBVUnit         ==  DBVUnit         = True
+    DBVArray      x == DBVByteArray   y = BS.pack (map (\(DBVByte w) -> w) x) == y
+    DBVByteArray  x == DBVArray       y = BS.pack (map (\(DBVByte w) -> w) y) == x
+    _               ==  _               = False
+
+
 -- TODO: Reinstate once https://github.com/goldfirere/singletons/issues/2 is
 -- resolved
 
@@ -186,6 +228,9 @@ castDBV (v :: DBusValue s)
 data SomeDBusValue where
     DBV :: SingI t => DBusValue t -> SomeDBusValue
 
+instance Show SomeDBusValue where
+    show (DBV x) = "DBV<"++ ppType (typeOf x) ++ "> (" ++ show x ++ ")"
+
 dbusValue :: SingI t => SomeDBusValue -> Maybe (DBusValue t)
 dbusValue (DBV v) = castDBV v
 
@@ -196,26 +241,40 @@ dbusSValue (DBV v) = castDBV v
 fromVariant :: SingI t => DBusValue TypeVariant -> Maybe (DBusValue t)
 fromVariant (DBVVariant v) = castDBV v
 
-instance Show (DBusValue a) where
-    show (DBVByte       x) = show x
-    show (DBVBool       x) = show x
-    show (DBVInt16      x) = show x
-    show (DBVUInt16     x) = show x
-    show (DBVInt32      x) = show x
-    show (DBVUInt32     x) = show x
-    show (DBVInt64      x) = show x
-    show (DBVUint64     x) = show x
-    show (DBVDouble     x) = show x
-    show (DBVUnixFD     x) = show x
-    show (DBVString     x) = show x
-    show (DBVObjectPath x) = show x
-    show (DBVSignature  x) = show x
-    show (DBVArray      x) = show x
-    show (DBVByteArray  x) = show x
-    show (DBVStruct     x) = show x
-    show (DBVVariant    (x :: DBusValue t)) = "Variant:" ++ ppType (fromSing (sing :: SDBusType t)) ++ "=" ++ show x
-    show (DBVDict      x) = show x
-    show (DBVUnit       ) = "DBVUnit"
+instance SingI t => Show (DBusValue t) where
+    show (DBVByte       x) = "DBVByte " ++ show x
+    show (DBVBool       x) = "DBVBool " ++ show x
+    show (DBVInt16      x) = "DBVInt16 " ++ show x
+    show (DBVUInt16     x) = "DBVUInt16 " ++ show x
+    show (DBVInt32      x) = "DBVInt32 " ++ show x
+    show (DBVUInt32     x) = "DBVUInt32 " ++ show x
+    show (DBVInt64      x) = "DBVInt64 " ++ show x
+    show (DBVUint64     x) = "DBVUint64 " ++ show x
+    show (DBVDouble     x) = "DBVDouble " ++ show x
+    show (DBVUnixFD     x) = "DBVUnixFD " ++ show x
+    show (DBVString     x) = "DBVString " ++ show x
+    show (DBVObjectPath x) = "objectPath " ++ show (show x)
+    show (DBVSignature  x) = "DBVSignature " ++ show x
+    show y@(DBVArray    x :: DBusValue t) = case (sing :: Sing t) of
+        STypeArray t -> withSingI t $
+          "DBVArray " ++ show x ++
+            if null x
+            then " :: DBusValue (" ++ (show $ typeOf y ) ++ ")"
+            else ""
+
+
+    show y@(DBVByteArray  x) = "DBVByteArray " ++ show x
+    show y@(DBVStruct     x :: DBusValue t) = case (sing :: Sing t) of
+        STypeStruct ts -> withSingI ts $
+            "DBVStruct (" ++ show x ++ ")"
+    show y@(DBVVariant   x ) = "DBVVariant (" ++ show x ++ ")"
+    show y@(DBVDict      x :: DBusValue t ) = case (sing :: Sing t) of
+        STypeDict kt vt -> withSingI kt $ withSingI vt $
+            "DBDict (" ++ show x ++ ")" ++
+              if null x
+              then " :: " ++ show (typeOf y)
+              else ""
+    show y@(DBVUnit       ) = "DBVUnit"
 
 typeOf :: SingI t => DBusValue t -> DBusType
 typeOf (_ :: DBusValue a) = fromSing (sing :: SDBusType a)

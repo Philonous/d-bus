@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -25,11 +26,32 @@ import           Data.Word
 import           DBus.Types
 import           DBus.Signature
 
+
 fromEnum' :: (Enum a, Num c) => a -> c
 fromEnum' = fromIntegral . fromEnum
 
 toEnum' :: (Enum c, Integral a) => a -> c
 toEnum' = toEnum . fromIntegral
+
+alignment :: DBusType -> Int
+alignment (DBusSimpleType TypeByte    ) = 1
+alignment (DBusSimpleType TypeBoolean ) = 4
+alignment (DBusSimpleType TypeInt16   ) = 2
+alignment (DBusSimpleType TypeUInt16  ) = 2
+alignment (DBusSimpleType TypeInt32   ) = 4
+alignment (DBusSimpleType TypeUInt32  ) = 4
+alignment (DBusSimpleType TypeInt64   ) = 8
+alignment (DBusSimpleType TypeUInt64  ) = 8
+alignment (DBusSimpleType TypeDouble  ) = 8
+alignment (DBusSimpleType TypeUnixFD  ) = 4
+alignment (DBusSimpleType TypeString  ) = 4
+alignment (DBusSimpleType TypeObjectPath) = 4
+alignment (DBusSimpleType TypeSignature) = 1
+alignment TypeVariant = 1
+alignment (TypeArray _) = 4
+alignment (TypeStruct _) = 8
+alignment (TypeDict _ _) = 8
+
 
 data Endian = Little | Big
 
@@ -41,9 +63,9 @@ endian :: (a -> BS.Builder)
        -> DBusPut ()
 endian l b x = do
     e <- ask
-    case e of
-        Little -> tell $ l x
-        Big -> tell $ b x
+    tell $ case e of
+        Little ->  l x
+        Big    ->  b x
 
 putSize :: MonadState Int m => Int -> m ()
 putSize i = modify (+i)
@@ -51,14 +73,18 @@ putSize i = modify (+i)
 alignPut :: Int -> DBusPut ()
 alignPut bytes = do
     s <- get
-    let align = (bytes - (s `mod` bytes))
+    let align = ((-s) `mod` bytes)
     replicateM align . tell $ BS.word8 0
     putSize align
 
-sizeOf :: DBusPut a -> DBusPut Int
-sizeOf x = do
+sizeOf :: Int -> Int -> DBusPut a -> DBusPut Int
+sizeOf offset al x = do
     s <- ask
-    return $ fst (execRWS x s 0)
+    here <- get
+    let start = ((here `aligning` offset) + offset) `aligning` al
+    return $ (fst (execRWS x s start)) - start
+  where
+    aligning x al = x + ((-x) `mod` al)
 
 bytes :: (a -> BS.Builder)
       -> (a -> BS.Builder)
@@ -111,48 +137,60 @@ putObjectPath o = putText $ objectPathToText o
 
 putSignatures s = do
     let bs = toSignatures s
-    putWord8 (fromIntegral $ BS.length bs)
+        len = BS.length bs
+    when (len > 255) $ fail "Signature too long"
+    putWord8 $ fromIntegral len
     putByteString bs
     putWord8 0
 
-putDBV :: DBusValue t -> DBusPut ()
-putDBV (DBVByte       x) = putWord8 x
-putDBV (DBVBool       x) = putWord32 $ fromEnum' x
-putDBV (DBVInt16      x) = putInt16 x
-putDBV (DBVUInt16     x) = putWord16 x
-putDBV (DBVInt32      x) = putInt32 x
-putDBV (DBVUInt32     x) = putWord32 x
-putDBV (DBVInt64      x) = putInt64 x
-putDBV (DBVUint64     x) = putWord64 x
-putDBV (DBVDouble     x) = putDouble x
-putDBV (DBVUnixFD     x) = putWord32 x
-putDBV (DBVString     x) = putText x
-putDBV (DBVObjectPath x) = putObjectPath x
-putDBV (DBVSignature  x) = putSignatures x
+putDBV = putDBV' sing
 
-putDBV (DBVVariant    x) = putSignatures [typeOf x]
-                           >> putDBV x
-putDBV (DBVArray      x) = let content = mapM_ putDBV x in do
-    putWord32 . fromIntegral =<< sizeOf content
+putDBV' :: Sing t -> DBusValue t -> DBusPut ()
+putDBV' _ (DBVByte       x) = putWord8 x
+putDBV' _ (DBVBool       x) = putWord32 $ fromEnum' x
+putDBV' _ (DBVInt16      x) = putInt16 x
+putDBV' _ (DBVUInt16     x) = putWord16 x
+putDBV' _ (DBVInt32      x) = putInt32 x
+putDBV' _ (DBVUInt32     x) = putWord32 x
+putDBV' _ (DBVInt64      x) = putInt64 x
+putDBV' _ (DBVUint64     x) = putWord64 x
+putDBV' _ (DBVDouble     x) = putDouble x
+putDBV' _ (DBVUnixFD     x) = putWord32 x
+putDBV' _ (DBVString     x) = putText x
+putDBV' _ (DBVObjectPath x) = putObjectPath x
+putDBV' _ (DBVSignature  x) = putSignatures x
+putDBV' _ (DBVVariant    x) = do
+    putSignatures [typeOf x]
+    putDBV' sing x
+putDBV' (STypeArray t) (DBVArray x) = do
+    let content = mapM_ (putDBV' t) x
+    let al = alignment $ fromSing t
+    size <- sizeOf 4 al content
+    putWord32 $ fromIntegral size
+    s <- get
+    alignPut al
     content
-putDBV (DBVByteArray  x) = do
+putDBV' _ (DBVByteArray  x) = do
     putWord32 . fromIntegral $ BS.length x
     putByteString x
-putDBV (DBVStruct     x) = do
+putDBV' (STypeStruct ts) (DBVStruct     x) = do
     alignPut 8
-    putStruct x
-putDBV (DBVDict       x) =
+    putStruct ts x
+putDBV' (STypeDict kt vt) (DBVDict       x) =
     let content = forM_ x $ \(k,v) -> do
             alignPut 8
-            putDBV k
-            putDBV v
+            putDBV' (SDBusSimpleType kt) k
+            putDBV' vt v
     in do
-        putWord32 . fromIntegral =<< sizeOf content
+        putWord32 . fromIntegral =<< sizeOf 4 8 content
+        alignPut 8
         content
 
-putStruct :: DBusStruct a -> DBusPut ()
-putStruct (StructSingleton v) = putDBV v
-putStruct (StructCons v vs ) = putDBV v >> putStruct vs
+putStruct :: Sing a -> DBusStruct a -> DBusPut ()
+putStruct (SCons t SNil) (StructSingleton v) = putDBV' t v
+putStruct (SCons t ts) (StructCons v vs ) = putDBV' t v >> putStruct ts vs
+
+runDBusPut e x = snd $ evalRWS x e 0
 
 -----------------------------------
 -- Get
@@ -170,7 +208,7 @@ getEndian l b = do
 alignGet :: Int -> DBusGet ()
 alignGet bytes = do
     s <- fromIntegral <$> lift B.bytesRead
-    let align = (bytes - (s `mod` bytes))
+    let align = ((-s) `mod` bytes)
     lift $ B.skip align
 
 getting :: B.Get a -> B.Get a -> Int -> DBusGet a
@@ -208,7 +246,7 @@ getText = do
     bs <- lift $ B.getByteString (fromIntegral len)
     guard . (== 0) =<< getWord8
     case Text.decodeUtf8' bs of
-        Left _ -> mzero
+        Left _ -> fail "could not decode UTF 8"
         Right txt -> return txt
 
 getBool :: DBusGet Bool
@@ -219,28 +257,10 @@ getSignatures = do
     bs <- lift $ B.getByteString (fromIntegral len)
     guard . (0 ==) =<< getWord8
     case parseSigs bs of
-         Nothing -> mzero
+         Nothing -> fail $ "could not parse signature" ++ show bs
          Just s -> return s
 
 getByteString = lift . B.getByteString
-
-alignment :: DBusType -> Int
-alignment (DBusSimpleType TypeByte    ) = 1
-alignment (DBusSimpleType TypeBoolean ) = 4
-alignment (DBusSimpleType TypeInt16   ) = 2
-alignment (DBusSimpleType TypeUInt16  ) = 2
-alignment (DBusSimpleType TypeInt32   ) = 4
-alignment (DBusSimpleType TypeUInt32  ) = 4
-alignment (DBusSimpleType TypeInt64   ) = 8
-alignment (DBusSimpleType TypeUInt64  ) = 8
-alignment (DBusSimpleType TypeDouble  ) = 8
-alignment (DBusSimpleType TypeUnixFD  ) = 4
-alignment (DBusSimpleType TypeString  ) = 4
-alignment (DBusSimpleType TypeObjectPath) = 4
-alignment (DBusSimpleType TypeSignature) = 1
-alignment TypeVariant = 1
-alignment (TypeArray _) = 4
-alignment (TypeStruct _) = 8
 
 getDBV :: Sing t -> DBusGet (DBusValue t)
 getDBV (SDBusSimpleType STypeByte    ) = DBVByte    <$> getWord8
@@ -260,9 +280,9 @@ getDBV STypeVariant = do
     ss <- getSignatures
     t <- case ss of
         [s] -> return s
-        _ -> mzero
+        s  -> fail $ "Expected 1 signature, got " ++ show (length s)
     case (toSing t) of
-        SomeSing s-> withSingI s $ DBVVariant <$> getDBV s
+        SomeSing s -> withSingI s $ DBVVariant <$> getDBV s
 getDBV (STypeArray (SDBusSimpleType STypeByte)) = do
     len <- getWord32
     DBVByteArray <$> getByteString (fromIntegral len)
@@ -270,13 +290,13 @@ getDBV (STypeArray t) = do
     len <- getWord32
     alignGet (alignment (fromSing t))
     DBVArray <$> getMany (fromIntegral len) t
-getDBV (STypeStruct ts) = DBVStruct <$> getStruct ts
+getDBV (STypeStruct ts) = do
+    alignGet 8
+    DBVStruct <$> getStruct ts
 getDBV (STypeDict k v) = do
     len <- getWord32
     alignGet 8
     DBVDict <$> getManyPairs (fromIntegral len) (SDBusSimpleType k) v
-
-
 
 getStruct :: Sing ts -> DBusGet (DBusStruct ts)
 getStruct (SCons t SNil) = StructSingleton <$> getDBV t
@@ -285,7 +305,7 @@ getStruct (SCons t ts) = StructCons <$> getDBV t <*> getStruct ts
 getMany :: Int64 -> Sing t -> DBusGet [DBusValue t]
 getMany len t = do
     n <- lift B.bytesRead
-    go (n+len)
+    go (n + len)
   where
     go n = do
         this <- lift B.bytesRead
@@ -309,17 +329,10 @@ getManyPairs len kt vt = do
         this <- lift B.bytesRead
         case compare this n of
             LT -> do
+                alignGet 8
                 k <- getDBV kt
                 v <- getDBV vt
                 vs <- go n
                 return ((k,v):vs)
             EQ -> return []
             GT -> mzero
-
-
-
--- do
-
-    -- len <- getWord32
-    -- skip (alignment $ fromSing t)
-    -- get
