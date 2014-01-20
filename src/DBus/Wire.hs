@@ -22,9 +22,11 @@ import           Data.Singletons.List
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           Data.Word
+import qualified Data.Conduit as C
 
 import           DBus.Types
 import           DBus.Signature
+import           DBus.Error
 
 
 fromEnum' :: (Enum a, Num c) => a -> c
@@ -54,6 +56,7 @@ alignment (TypeDict _ _) = 8
 
 
 data Endian = Little | Big
+                       deriving (Show, Eq, Enum, Bounded)
 
 type DBusPut a = RWS Endian BS.Builder Int a
 
@@ -78,10 +81,12 @@ alignPut bytes = do
     putSize align
 
 sizeOf :: Int -> Int -> DBusPut a -> DBusPut Int
-sizeOf offset al x = do
+sizeOf offset al' x = do
+    let al = if al' == 0 then 1 else al'
+        offsetA = if offset == 0 then 1 else offset
     s <- ask
     here <- get
-    let start = ((here `aligning` offset) + offset) `aligning` al
+    let start = ((here `aligning` offsetA) + offset) `aligning` al
     return $ (fst (execRWS x s start)) - start
   where
     aligning x al = x + ((-x) `mod` al)
@@ -190,7 +195,12 @@ putStruct :: Sing a -> DBusStruct a -> DBusPut ()
 putStruct (SCons t SNil) (StructSingleton v) = putDBV' t v
 putStruct (SCons t ts) (StructCons v vs ) = putDBV' t v >> putStruct ts vs
 
+runDBusPut :: Num s => r -> RWS r b s a -> b
 runDBusPut e x = snd $ evalRWS x e 0
+
+putValues :: [SomeDBusValue]
+          -> DBusPut ()
+putValues vs = mapM_ (\(DBV v) -> putDBV v) vs
 
 -----------------------------------
 -- Get
@@ -262,45 +272,52 @@ getSignatures = do
 
 getByteString = lift . B.getByteString
 
-getDBV :: Sing t -> DBusGet (DBusValue t)
-getDBV (SDBusSimpleType STypeByte    ) = DBVByte    <$> getWord8
-getDBV (SDBusSimpleType STypeBoolean ) = DBVBool    <$> getBool
-getDBV (SDBusSimpleType STypeInt16   ) = DBVInt16   <$> getInt16
-getDBV (SDBusSimpleType STypeUInt16  ) = DBVUInt16  <$> getWord16
-getDBV (SDBusSimpleType STypeInt32   ) = DBVInt32   <$> getInt32
-getDBV (SDBusSimpleType STypeUInt32  ) = DBVUInt32  <$> getWord32
-getDBV (SDBusSimpleType STypeInt64   ) = DBVInt64   <$> getInt64
-getDBV (SDBusSimpleType STypeUInt64  ) = DBVUint64  <$> getWord64
-getDBV (SDBusSimpleType STypeDouble  ) = DBVDouble  <$> getDouble
-getDBV (SDBusSimpleType STypeUnixFD  ) = DBVUnixFD  <$> getWord32
-getDBV (SDBusSimpleType STypeString  ) = DBVString  <$> getText
-getDBV (SDBusSimpleType STypeObjectPath) = DBVObjectPath . objectPath <$> getText
-getDBV (SDBusSimpleType STypeSignature) =  DBVSignature <$> getSignatures
-getDBV STypeVariant = do
+getDBV :: SingI t => DBusGet (DBusValue t)
+getDBV = getDBV' sing
+
+getDBVByType :: DBusType -> DBusGet SomeDBusValue
+getDBVByType t = case toSing t of
+    SomeSing s -> withSingI s $ DBV <$> getDBV' s
+
+getDBV' :: Sing t -> DBusGet (DBusValue t)
+getDBV' (SDBusSimpleType STypeByte    ) = DBVByte    <$> getWord8
+getDBV' (SDBusSimpleType STypeBoolean ) = DBVBool    <$> getBool
+getDBV' (SDBusSimpleType STypeInt16   ) = DBVInt16   <$> getInt16
+getDBV' (SDBusSimpleType STypeUInt16  ) = DBVUInt16  <$> getWord16
+getDBV' (SDBusSimpleType STypeInt32   ) = DBVInt32   <$> getInt32
+getDBV' (SDBusSimpleType STypeUInt32  ) = DBVUInt32  <$> getWord32
+getDBV' (SDBusSimpleType STypeInt64   ) = DBVInt64   <$> getInt64
+getDBV' (SDBusSimpleType STypeUInt64  ) = DBVUint64  <$> getWord64
+getDBV' (SDBusSimpleType STypeDouble  ) = DBVDouble  <$> getDouble
+getDBV' (SDBusSimpleType STypeUnixFD  ) = DBVUnixFD  <$> getWord32
+getDBV' (SDBusSimpleType STypeString  ) = DBVString  <$> getText
+getDBV' (SDBusSimpleType STypeObjectPath) = DBVObjectPath . objectPath <$> getText
+getDBV' (SDBusSimpleType STypeSignature) =  DBVSignature <$> getSignatures
+getDBV' STypeVariant = do
     ss <- getSignatures
     t <- case ss of
         [s] -> return s
         s  -> fail $ "Expected 1 signature, got " ++ show (length s)
     case (toSing t) of
-        SomeSing s -> withSingI s $ DBVVariant <$> getDBV s
-getDBV (STypeArray (SDBusSimpleType STypeByte)) = do
+        SomeSing s -> withSingI s $ DBVVariant <$> getDBV' s
+getDBV' (STypeArray (SDBusSimpleType STypeByte)) = do
     len <- getWord32
     DBVByteArray <$> getByteString (fromIntegral len)
-getDBV (STypeArray t) = do
+getDBV' (STypeArray t) = do
     len <- getWord32
     alignGet (alignment (fromSing t))
     DBVArray <$> getMany (fromIntegral len) t
-getDBV (STypeStruct ts) = do
+getDBV' (STypeStruct ts) = do
     alignGet 8
     DBVStruct <$> getStruct ts
-getDBV (STypeDict k v) = do
+getDBV' (STypeDict k v) = do
     len <- getWord32
     alignGet 8
     DBVDict <$> getManyPairs (fromIntegral len) (SDBusSimpleType k) v
 
 getStruct :: Sing ts -> DBusGet (DBusStruct ts)
-getStruct (SCons t SNil) = StructSingleton <$> getDBV t
-getStruct (SCons t ts) = StructCons <$> getDBV t <*> getStruct ts
+getStruct (SCons t SNil) = StructSingleton <$> getDBV' t
+getStruct (SCons t ts) = StructCons <$> getDBV' t <*> getStruct ts
 
 getMany :: Int64 -> Sing t -> DBusGet [DBusValue t]
 getMany len t = do
@@ -311,7 +328,7 @@ getMany len t = do
         this <- lift B.bytesRead
         case compare this n of
             LT -> do
-                v <- getDBV t
+                v <- getDBV' t
                 vs <- go n
                 return (v:vs)
             EQ -> return []
@@ -330,9 +347,17 @@ getManyPairs len kt vt = do
         case compare this n of
             LT -> do
                 alignGet 8
-                k <- getDBV kt
-                v <- getDBV vt
+                k <- getDBV' kt
+                v <- getDBV' vt
                 vs <- go n
                 return ((k,v):vs)
             EQ -> return []
             GT -> mzero
+
+
+sinkGet :: C.MonadThrow m => B.Get b -> C.ConduitM BS.ByteString o m b
+sinkGet f = sink (B.runGetIncremental f)
+  where
+      sink (B.Done bs _ v)  = C.leftover bs >> return v
+      sink (B.Fail u o e)   = C.monadThrow $ DBusParseError e
+      sink (B.Partial next) = C.await >>= sink . next

@@ -41,8 +41,13 @@ import           Unsafe.Coerce (unsafeCoerce)
 newtype ObjectPath = ObjectPath {fromObjectPath :: [Text.Text]}
                          deriving (Eq, Data, Typeable)
 
+
+
+newtype Signature = Signature {fromSignature :: [DBusType]}
+                  deriving (Show, Eq)
+
 -- | Parse an object path. Contrary to the standard, empty path parts are ignored
-objectPath = ObjectPath . filter (not . Text.null) . Text.splitOn "/"
+objectPath = ObjectPath . Text.splitOn "/"
 objectPathToText (ObjectPath o) = if null o then "/"
                                             else Text.intercalate "/" o
 

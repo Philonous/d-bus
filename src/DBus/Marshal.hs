@@ -15,29 +15,29 @@ import qualified Data.Text.Encoding as Text
 
 import qualified DBus.Message as DBus
 
-import           DBus.ExtTypes
+import           DBus.Types
 import           DBus.Signature
 
 -- toTypeS = toType . fromSing
 
--- toValue :: SingI t => DBusValue t -> DBus.Value
--- toValue x = toValue' sing x
+toArg :: SingI t => DBusValue t -> DBus.Arg
+toArg x = toArg' sing x
 
 toArg' :: SDBusType t -> DBusValue t -> DBus.Arg
-toArg' _ (DBVByte       x)              = DBus.Byte x
-toArg' _ (DBVBool       x)              = DBus.Boolean x
-toArg' _ (DBVInt16      x)              = DBus.Int16 x
-toArg' _ (DBVUInt16     x)              = DBus.Word16 x
-toArg' _ (DBVInt32      x)              = DBus.Int32 x
-toArg' _ (DBVUInt32     x)              = DBus.Word32 x
-toArg' _ (DBVInt64      x)              = DBus.Int64 x
-toArg' _ (DBVUint64     x)              = DBus.Word64 x
-toArg' _ (DBVDouble     x)              = DBus.Double x
-toArg' _ (DBVString     x)              = DBus.String (Text.encodeUtf8 x)
-toArg' _ (DBVObjectPath (ObjectPath x)) = DBus.ObjectPath $ Text.encodeUtf8 x
-toArg' _ (DBVSignature  x)              = DBus.TypeSignature $ toSignatures x
-toArg' _ (DBVUnixFD     x)              = error "toValue DBVUnixFD is not implemented"
-toArg' _ (DBVVariant x)    = DBus.Variant $ toArg' sing x
+toArg' _ (DBVByte       x) = DBus.Byte x
+toArg' _ (DBVBool       x) = DBus.Boolean x
+toArg' _ (DBVInt16      x) = DBus.Int16 x
+toArg' _ (DBVUInt16     x) = DBus.Word16 x
+toArg' _ (DBVInt32      x) = DBus.Int32 x
+toArg' _ (DBVUInt32     x) = DBus.Word32 x
+toArg' _ (DBVInt64      x) = DBus.Int64 x
+toArg' _ (DBVUint64     x) = DBus.Word64 x
+toArg' _ (DBVDouble     x) = DBus.Double x
+toArg' _ (DBVString     x) = DBus.String (Text.encodeUtf8 x)
+toArg' _ (DBVObjectPath x) = DBus.ObjectPath . Text.encodeUtf8 $ objectPathToText x
+toArg' _ (DBVSignature  x) = DBus.TypeSignature $ toSignatures x
+toArg' _ (DBVUnixFD     x) = error "toValue DBVUnixFD is not implemented"
+toArg' _ (DBVVariant    x) = DBus.Variant $ toArg' sing x
 toArg' (STypeArray t)   (DBVArray    x) = DBus.Array (toSignature $ fromSing t)
                                              (map (toArg' t) x)
 toArg' _ (DBVByteArray  x) = DBus.ByteString x
@@ -46,6 +46,8 @@ toArg' t@(STypeDict kt vt) (DBVDict     x) =
     DBus.Array (toSignature $ fromSing t)
     .  map (\(k,v) -> DBus.DictEntry (toArg' (SDBusSimpleType kt) k)
                                      (toArg' vt v) ) $ x
+
+toArg' _ DBVUnit = error "Can't marshal DBVUnit"
 
 structToArgs :: SDBusType (TypeStruct ts) -> DBusStruct ts -> [DBus.Arg]
 structToArgs (STypeStruct (SCons t SNil)) (StructSingleton x) = [toArg' t x]
@@ -63,7 +65,7 @@ fromArg (DBus.Int64  x) = DBV $ DBVInt64  x
 fromArg (DBus.Word64 x) = DBV $ DBVUint64 x
 fromArg (DBus.Double x) = DBV $ DBVDouble x
 fromArg (DBus.String x) = DBV $ DBVString (Text.decodeUtf8 x)
-fromArg (DBus.ObjectPath x) = DBV $ DBVObjectPath (ObjectPath $ Text.decodeUtf8 x)
+fromArg (DBus.ObjectPath x) = DBV . DBVObjectPath . objectPath $ Text.decodeUtf8 x
 fromArg (DBus.TypeSignature ts) = DBV $ DBVSignature (fromJust $ parseSigs ts)
 fromArg (DBus.Variant v) = DBV ((\(DBV v) -> DBVVariant v) $ fromArg v)
 fromArg (DBus.Array t v) = case (toSing . fromJust $ parseSig t) of

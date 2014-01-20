@@ -22,7 +22,7 @@ import           Data.Singletons.TH
 import           Data.Singletons.List
 
 import           DBus.Connection
-import           DBus.Marshal
+-- import           DBus.Marshal
 -- import qualified DBus.Message as DBus
 -- import           DBus.Types
 

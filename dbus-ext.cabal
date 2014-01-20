@@ -18,19 +18,23 @@ library
                    , DBus.Representable
                    , DBus.TH
 --                   , Bindings
-                   , DBus.Introspect
+--                   , DBus.Introspect
                    , DBus.Signature
-                   , DBus.Object
-                   , DBus.Mainloop
-                   , DBus
+--                   , DBus.Object
+--                   , DBus
 --                   , DBus.Marshal
+                   , DBus.Wire
   build-depends:     base >= 4 && <5
 --                   , DBus >= 0.5
                    , attoparsec
+                   , binary-conduit
+                   , binary >= 0.7
                    , blaze-builder
                    , bytestring
-                   , conduit
+                   , conduit >= 1.0
                    , containers
+                   , data-binary-ieee754
+                   , mtl
                    , singletons
                    , stm
                    , stunclient
@@ -41,9 +45,8 @@ library
                    , xml-conduit
                    , xml-picklers
                    , xml-types
-                   , binary >= 0.7
-                   , mtl
-                   , data-binary-ieee754
+                   , network
+                   , free
 
 test-suite tests
   type:              exitcode-stdio-1.0
@@ -57,3 +60,7 @@ test-suite tests
                    , tasty
                    , tasty-th
                    , tasty-quickcheck
+                   , singletons
+                   , bytestring
+                   , binary
+                   , mtl
