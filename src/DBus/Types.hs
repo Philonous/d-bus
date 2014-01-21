@@ -16,6 +16,7 @@ module DBus.Types where
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Trans.Error
 import qualified Data.ByteString as BS
@@ -25,10 +26,10 @@ import           Data.Int
 import           Data.List
 import           Data.List (intercalate)
 import qualified Data.Map as Map
+import           Data.Singletons (withSingI)
 import           Data.Singletons.Bool
 import           Data.Singletons.List
 import           Data.Singletons.TH
-import           Data.Singletons (withSingI)
 import qualified Data.Text as Text
 import           Data.Typeable(Typeable)
 import           Data.Word
@@ -38,8 +39,9 @@ import           Unsafe.Coerce (unsafeCoerce)
 -- import qualified DBus.Message as DBus
 
 
-newtype ObjectPath = ObjectPath {fromObjectPath :: [Text.Text]}
-                         deriving (Eq, Data, Typeable)
+data ObjectPath = ObjectPath { opAbsolute :: Bool
+                             , opParts :: [Text.Text]
+                             } deriving (Eq, Data, Typeable)
 
 
 
@@ -47,18 +49,27 @@ newtype Signature = Signature {fromSignature :: [DBusType]}
                   deriving (Show, Eq)
 
 -- | Parse an object path. Contrary to the standard, empty path parts are ignored
-objectPath = ObjectPath . Text.splitOn "/"
-objectPathToText (ObjectPath o) = if null o then "/"
-                                            else Text.intercalate "/" o
+objectPath txt = case Text.uncons txt of
+    Just ('/', rest) -> ObjectPath True
+                             $ filter (not. Text.null) $ Text.splitOn "/" rest
+    Just _ -> ObjectPath False $ filter (not. Text.null) $ Text.splitOn "/" txt
+    Nothing -> ObjectPath False []
+objectPathToText (ObjectPath abs parts) = (if abs then "/" else "")
+                                          `Text.append` Text.intercalate "/" parts
 
 instance Show ObjectPath where
     show = Text.unpack . objectPathToText
 
 stripObjectPrefix :: ObjectPath -> ObjectPath -> Maybe ObjectPath
-stripObjectPrefix (ObjectPath pre) (ObjectPath x) = ObjectPath <$>
-                                                      stripPrefix pre x
+stripObjectPrefix (ObjectPath abs1 pre) (ObjectPath abs2 x) | abs1 == abs2
+                                        = ObjectPath False <$> stripPrefix pre x
+stripObjectPrefix _ _ = Nothing
 
-isRoot (ObjectPath p) = null p
+isRoot (ObjectPath True p) = null p
+isRoot _ = False
+
+isEmpty (ObjectPath False p) = null p
+isEmpty _ = False
 
 data DBusSimpleType
     = TypeByte
@@ -331,14 +342,21 @@ data Object = Object { objectObjectPath :: ObjectPath
 --------------------------------------------------
 
 data MsgError = MsgError { errorName :: Text.Text
-                         , errorText :: Text.Text
-                         }
+                         , errorText :: Maybe Text.Text
+                         , errorBody :: [SomeDBusValue]
+                         } deriving (Show, Typeable)
+
+instance Ex.Exception MsgError
 
 instance Error MsgError where
     strMsg str = MsgError { errorName = "org.freedesktop.DBus.Error.Failed"
-                          , errorText = Text.pack str
+                          , errorText = Just (Text.pack str)
+                          , errorBody = []
                           }
-
+    noMsg = MsgError { errorName = "org.freedesktop.DBus.Error.Failed"
+                     , errorText = Nothing
+                     , errorBody = []
+                     }
 
 
 data Connection = Connection { primConnection :: () -- DBus.Connection

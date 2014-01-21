@@ -1,30 +1,28 @@
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module DBus.Object where
 
 import           Control.Applicative ((<$>))
 import           Control.Monad
-import           Data.List (intercalate)
+import           Data.List (intercalate, find)
 import           Data.Maybe
 import qualified Data.Text as Text
 import           Data.Singletons
 import           Data.Singletons.TH
 import           Data.Singletons.List
 
-import           DBus.Connection
--- import           DBus.Marshal
--- import qualified DBus.Message as DBus
--- import           DBus.Types
+import           DBus.Types
 
 class IsMethod f where
     type ArgTypes f
@@ -59,20 +57,20 @@ instance (RepMethod b, Representable a, SingI (RepType a) )
         Nothing -> error "marshalling error" -- TODO
         Just x -> repMethod $ f x
 
-callMethodW :: SingI at =>
+runMethodW :: SingI at =>
                MethodWrapper at rt
-            -> [DBus.Arg]
+            -> [SomeDBusValue]
             -> Maybe (IO (DBusValue rt))
-callMethodW m args = callMethodW' sing args m
+runMethodW m args = runMethodW' sing args m
 
-callMethodW' :: Sing at
-             -> [DBus.Arg]
+runMethodW' :: Sing at
+             -> [SomeDBusValue]
              -> MethodWrapper at rt
              -> Maybe (IO (DBusValue rt))
-callMethodW' SNil         []         (MReturn f) = Just f
-callMethodW' (SCons t ts) (arg:args) (MAsk f)    = (callMethodW' ts args . f )
-                                                  =<< dbusValue (fromArg arg)
-callMethodW' _            _           _          = Nothing
+runMethodW' SNil         []         (MReturn f) = Just f
+runMethodW' (SCons t ts) (arg:args) (MAsk f)    = (runMethodW' ts args . f )
+                                                  =<< dbusValue arg
+runMethodW' _            _           _          = Nothing
 
 methodWSignature :: (SingI at, SingI rt) =>
                    MethodWrapper (at :: [DBusType]) (rt :: DBusType)
@@ -83,8 +81,8 @@ methodWSignature (_ :: MethodWrapper at rt) = ( fromSing (sing :: Sing at)
                                                      t -> Just t)
 
 
-callMethod :: Method -> [DBus.Arg] -> Maybe (IO SomeDBusValue)
-callMethod (Method m _ _) args = liftM DBV <$> callMethodW m args
+runMethod :: Method -> [SomeDBusValue] -> Maybe (IO SomeDBusValue)
+runMethod (Method m _ _) args = liftM DBV <$> runMethodW m args
 
 methodSignature :: Method -> ([DBusType], Maybe DBusType)
 methodSignature (Method m _ _) = methodWSignature m
@@ -119,6 +117,31 @@ instance Show Object where
 findObject :: ObjectPath -> Object -> Maybe Object
 findObject path o = case stripObjectPrefix (objectObjectPath o) path of
     Nothing -> Nothing
-    Just suff -> if isRoot suff then Just o
+    Just suff -> if isEmpty suff then Just o
                  else listToMaybe . catMaybes $
                         (findObject suff <$> objectSubObjects o)
+
+callAtPath :: Object
+           -> ObjectPath
+           -> Text.Text
+           -> Text.Text
+           -> [SomeDBusValue]
+           -> Either MsgError (IO SomeDBusValue)
+callAtPath root path interface member args = case findObject path root of
+    Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
+                                     (Just . Text.pack $ "No such object "
+                                                          ++ show path)
+                                     [])
+    Just o -> case find ((== interface) . interfaceName) $ objectInterfaces o of
+        Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
+                                     (Just "No such interface")
+                                     [])
+        Just i -> case find ((== member) . methodName) $ interfaceMethods i of
+            Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
+                                     (Just "No such interface")
+                                     [])
+            Just m -> case runMethod m args of
+                Nothing -> Left (MsgError "org.freedesktop.DBus.Error.InvalidArgs"
+                                          (Just "Argument type missmatch")
+                                          [])
+                Just ret -> Right ret

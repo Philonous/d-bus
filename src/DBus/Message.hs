@@ -5,20 +5,23 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
-module Message where
+
+module DBus.Message where
 
 import           Control.Applicative
 import           Control.Monad
+import           Control.Monad.Reader
 import qualified Data.Attoparsec.Char8 as AP8
+import qualified Data.Binary.Get as B
 import           Data.Bits
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy.Builder as BS
 import           Data.Char
 import qualified Data.Conduit as C
-import qualified Data.Conduit.Serialization.Binary as CSB
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Text as Text
 import           Data.Word
-import qualified Data.ByteString as BS
 
 import           DBus.Error
 import           DBus.Representable
@@ -54,6 +57,7 @@ data Flag = NoReplyExpected
           deriving (Eq, Show)
 
 newtype Flags = Flags [Flag]
+              deriving (Show, Eq)
 
 instance Representable Flags where
     type RepType Flags = 'DBusSimpleType TypeByte
@@ -75,8 +79,8 @@ instance Representable Signature where
 data HeaderFields = HeaderFields { hFPath :: Maybe ObjectPath
                                  , hFInterface :: Maybe Text.Text
                                  , hFMember :: Maybe Text.Text
-                                 , hFErrorname :: Maybe Text.Text
-                                 , hFReplyserial :: Maybe Word32
+                                 , hFErrorName :: Maybe Text.Text
+                                 , hFReplySerial :: Maybe Word32
                                  , hFDestination :: Maybe Text.Text
                                  , hFSender :: Maybe Text.Text
                                  , hFMessageSignature :: Maybe Signature
@@ -97,8 +101,8 @@ toFields hfs = catMaybes
     [ HeaderFieldPath             <$> hFPath hfs
     , HeaderFieldInterface        <$> hFInterface hfs
     , HeaderFieldMember           <$> hFMember hfs
-    , HeaderFieldErrorName        <$> hFErrorname hfs
-    , HeaderFieldReplySerial      <$> hFReplyserial hfs
+    , HeaderFieldErrorName        <$> hFErrorName hfs
+    , HeaderFieldReplySerial      <$> hFReplySerial hfs
     , HeaderFieldDestination      <$> hFDestination hfs
     , HeaderFieldSender           <$> hFSender hfs
     , HeaderFieldMessageSignature <$> hFMessageSignature hfs
@@ -111,8 +115,8 @@ fromFields fs = foldr fromField emptyHeaderFields fs
     fromField (HeaderFieldPath x)             hf = hf{hFPath = Just x}
     fromField (HeaderFieldInterface x)        hf = hf{hFInterface = Just x}
     fromField (HeaderFieldMember x)           hf = hf{hFMember = Just x}
-    fromField (HeaderFieldErrorName x)        hf = hf{hFErrorname = Just x}
-    fromField (HeaderFieldReplySerial x)      hf = hf{hFReplyserial = Just x}
+    fromField (HeaderFieldErrorName x)        hf = hf{hFErrorName = Just x}
+    fromField (HeaderFieldReplySerial x)      hf = hf{hFReplySerial = Just x}
     fromField (HeaderFieldDestination x)      hf = hf{hFDestination = Just x}
     fromField (HeaderFieldSender x)           hf = hf{hFSender = Just x}
     fromField (HeaderFieldMessageSignature x) hf = hf{hFMessageSignature = Just x}
@@ -150,46 +154,109 @@ data MessageHeader =
                   , messageLength :: Word32
                   , serial :: Word32
                   , fields :: HeaderFields
-                  }
+                  } deriving (Show, Eq)
 
 makeRepresentable ''MessageHeader
 
-messageCall dest path interface member args flags sid =
-    let (len, body) = putValues Little args
-        sig = Signature $ map (\(DBV v) -> typeOf v) args
-        hFields = emptyHeaderFields{ hFPath             = Just path
+methodCall :: Word32
+           -> Text.Text
+           -> ObjectPath
+           -> Text.Text
+           -> Text.Text
+           -> [SomeDBusValue]
+           -> [Flag]
+           -> BS.Builder
+methodCall sid dest path interface member args flags =
+    let hFields = emptyHeaderFields{ hFPath             = Just path
                                    , hFInterface        = Just interface
                                    , hFMember           = Just member
                                    , hFDestination      = Just dest
-                                   , hFMessageSignature = Just sig
                                    }
         header = MessageHeader
-                     { endianessFlag = Little
-                     , messageType = MethodCall
-                     , flags = Flags flags
-                     , version = 1
-                     , messageLength = len
-                     , serial = sid
-                     , fields = hFields
-                     }
-    in snd (putValues Little [DBV $ toRep header]) <> body
+                 { endianessFlag = Little
+                 , messageType = MethodCall
+                 , flags = Flags flags
+                 , version = 1
+                 , messageLength = 0
+                 , serial = sid
+                 , fields = hFields
+                 }
+    in serializeMessage header args
 
-peekEndian :: C.MonadThrow m => C.ConduitM BS.ByteString o m Endian
-peekEndian = do
-    mbBs <- C.await
-    case mbBs of
-        Nothing -> C.monadThrow $ DBusParseError "Not enough Data"
-        Just bs -> do
-            e <- case BS.uncons bs of
-                Nothing -> C.monadThrow $ DBusParseError "Not enough Data"
-                Just (c, _) | chr (fromIntegral c) == 'l' -> return Little
-                            | chr (fromIntegral c) == 'b' -> return Big
-                            | otherwise -> C.monadThrow . DBusParseError
-                                              $ "not an endianness flag: "
-                                                ++ (show . chr $ fromIntegral c)
-            C.leftover bs
-            return e
+methodReturn :: Word32
+             -> Word32
+             -> Text.Text
+             -> [SomeDBusValue]
+             -> BS.Builder
+methodReturn sid rsid dest args =
+    let hFields = emptyHeaderFields{ hFDestination = Just dest
+                                   , hFReplySerial = Just rsid
+                                   }
+        header = MessageHeader
+                 { endianessFlag = Little
+                 , messageType = MethodReturn
+                 , flags = Flags []
+                 , version = 1
+                 , messageLength = 0
+                 , serial = sid
+                 , fields = hFields
+                 }
+    in serializeMessage header args
 
-parseMessages = do
-    endian <- peekEndian
-    header <- getDBV
+errorMessage :: Word32
+             -> Maybe Word32
+             -> Text.Text
+             -> Text.Text
+             -> Maybe Text.Text
+             -> [SomeDBusValue]
+             -> BS.Builder
+errorMessage sid rsid dest name text args =
+    let hFields = emptyHeaderFields{ hFDestination = Just dest
+                                   , hFErrorName   = Just name
+                                   , hFReplySerial = rsid
+                                   }
+        header = MessageHeader
+                 { endianessFlag = Little
+                 , messageType = Error
+                 , flags = Flags []
+                 , version = 1
+                 , messageLength = 0
+                 , serial = sid
+                 , fields = hFields
+                 }
+    in serializeMessage header (maybe id (\t -> (DBV (DBVString t) :))
+                                          text args)
+
+
+serializeMessage head args =
+    let vs = putValues args
+        sig = Signature $ map (\(DBV v) -> typeOf v) args
+        header len = head { messageLength = len
+                          , fields = (fields head){hFMessageSignature = Just sig}
+                          }
+    in runDBusPut Little $ do
+        l <- sizeOf 0 1 vs
+        putDBV . toRep $ header (fromIntegral l)
+        alignPut 8
+        vs
+
+getMessage = do
+    mbEndian <- fromRep <$> (B.lookAhead $ runReaderT getDBV Little)
+    endian <- case mbEndian of
+        Nothing -> fail "could not read endiannes flag"
+        Just e -> return e
+    flip runReaderT endian $ do
+        mbHeader <- fromRep <$> getDBV
+        header <- case mbHeader of
+            Nothing -> fail "Header has wrong type"
+            Just h -> return h
+        alignGet 8
+        args <- case hFMessageSignature $ fields header of
+            Nothing -> return []
+            Just (Signature sigs) -> forM sigs $ \t ->
+                getDBVByType t
+        return (header, args)
+
+parseMessages :: C.MonadThrow m =>
+                 C.ConduitM BS.ByteString (MessageHeader, [SomeDBusValue]) m b
+parseMessages = forever $ C.yield =<< sinkGet getMessage
