@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -9,6 +10,7 @@
 module DBus.Message where
 
 import           Control.Applicative
+import           Control.Concurrent.STM
 import           Control.Monad
 import           Control.Monad.Reader
 import qualified Data.Attoparsec.Char8 as AP8
@@ -18,10 +20,13 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS
 import           Data.Char
 import qualified Data.Conduit as C
+import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Monoid
+import           Data.Singletons
 import qualified Data.Text as Text
 import           Data.Word
+import           System.Mem.Weak
 
 import           DBus.Error
 import           DBus.Representable
@@ -260,3 +265,61 @@ getMessage = do
 parseMessages :: C.MonadThrow m =>
                  C.ConduitM BS.ByteString (MessageHeader, [SomeDBusValue]) m b
 parseMessages = forever $ C.yield =<< sinkGet getMessage
+
+sendBS conn bs = do
+    write <- atomically . takeTMVar $ dBusWriteLock conn
+    write bs
+    atomically $ putTMVar (dBusWriteLock conn) write
+
+
+-- | Asychronously call a method. Returns an STM action that waits for the
+-- returned value
+callMethod :: Text.Text
+           -> ObjectPath
+           -> Text.Text
+           -> Text.Text
+           -> [SomeDBusValue]
+           -> [Flag]
+           -> DBusConnection
+           -> IO (STM (Either [SomeDBusValue] SomeDBusValue))
+callMethod dest path interface member args flags conn = do
+    serial <- atomically $ dBusCreateSerial conn
+    ref <- newEmptyTMVarIO
+    rSlot <- newTVarIO ()
+    mkWeak rSlot (connectionAliveRef conn) Nothing
+    addFinalizer rSlot (finalizeSlot serial)
+    slot <- atomically $ do
+        modifyTVar (dBusAnswerSlots conn) (Map.insert serial $ putTMVar ref)
+        return ref
+    let bs = methodCall serial dest path interface member args flags
+    sendBS conn bs
+    return $ readTMVar slot <* readTVar rSlot
+  where
+    finalizeSlot s = do
+        atomically $ modifyTVar (dBusAnswerSlots conn)
+                                             (Map.delete s)
+
+-- | Wait for the answer of a method call
+getAnswer :: IO (STM b) -> IO b
+getAnswer = (atomically =<<)
+
+-- | Synchronously call a method. Returned errors are thrown as 'MethodError's.
+-- If the returned value's type doesn't match the expected type a
+-- 'MethodSignatureMissmatch' is thrown.
+callMethod' :: (SingI (RepType a), Representable a, C.MonadThrow m, MonadIO m) =>
+               Text.Text
+            -> ObjectPath
+            -> Text.Text
+            -> Text.Text
+            -> [SomeDBusValue]
+            -> [Flag]
+            -> DBusConnection
+            -> m a
+callMethod' dest path interface member args flags conn = do
+    ret <- liftIO . getAnswer
+               $ callMethod dest path interface member args flags conn
+    case ret of
+        Left e -> C.monadThrow $ MethodErrorMessage e
+        Right r -> case fromRep =<< dbusValue r of
+            Nothing -> C.monadThrow $ MethodSignatureMissmatch r
+            Just x -> return x

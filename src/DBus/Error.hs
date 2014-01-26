@@ -6,6 +6,7 @@ import Data.Typeable (Typeable)
 
 data DBusError = CouldNotConnect String
                | DBusParseError String
+               | MarshalError String
                  deriving (Show, Eq, Typeable)
 
 instance Ex.Exception DBusError

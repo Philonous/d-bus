@@ -20,6 +20,7 @@ import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Trans.Error
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy.Builder as BS
 import           Data.Data(Data)
 import           Data.Function (fix, on)
 import           Data.Int
@@ -64,6 +65,12 @@ stripObjectPrefix :: ObjectPath -> ObjectPath -> Maybe ObjectPath
 stripObjectPrefix (ObjectPath abs1 pre) (ObjectPath abs2 x) | abs1 == abs2
                                         = ObjectPath False <$> stripPrefix pre x
 stripObjectPrefix _ _ = Nothing
+
+isPathPrefix :: ObjectPath -> ObjectPath -> Bool
+isPathPrefix p x = case stripObjectPrefix p x of
+    Nothing -> False
+    Just _ -> True
+
 
 isRoot (ObjectPath True p) = null p
 isRoot _ = False
@@ -169,7 +176,7 @@ data DBusValue :: DBusType -> * where
     DBVInt32      :: Int32         -> DBusValue ('DBusSimpleType TypeInt32)
     DBVUInt32     :: Word32        -> DBusValue ('DBusSimpleType TypeUInt32)
     DBVInt64      :: Int64         -> DBusValue ('DBusSimpleType TypeInt64)
-    DBVUint64     :: Word64        -> DBusValue ('DBusSimpleType TypeUInt64)
+    DBVUInt64     :: Word64        -> DBusValue ('DBusSimpleType TypeUInt64)
     DBVDouble     :: Double        -> DBusValue ('DBusSimpleType TypeDouble)
     DBVUnixFD     :: Word32        -> DBusValue ('DBusSimpleType TypeUnixFD)
     DBVString     :: Text.Text     -> DBusValue ('DBusSimpleType TypeString)
@@ -196,7 +203,7 @@ instance Eq (DBusValue t) where
     DBVInt32      x ==  DBVInt32      y = x == y
     DBVUInt32     x ==  DBVUInt32     y = x == y
     DBVInt64      x ==  DBVInt64      y = x == y
-    DBVUint64     x ==  DBVUint64     y = x == y
+    DBVUInt64     x ==  DBVUInt64     y = x == y
     DBVDouble     x ==  DBVDouble     y = x == y
     DBVUnixFD     x ==  DBVUnixFD     y = x == y
     DBVString     x ==  DBVString     y = x == y
@@ -265,7 +272,7 @@ instance SingI t => Show (DBusValue t) where
     show (DBVInt32      x) = "DBVInt32 " ++ show x
     show (DBVUInt32     x) = "DBVUInt32 " ++ show x
     show (DBVInt64      x) = "DBVInt64 " ++ show x
-    show (DBVUint64     x) = "DBVUint64 " ++ show x
+    show (DBVUInt64     x) = "DBVUInt64 " ++ show x
     show (DBVDouble     x) = "DBVDouble " ++ show x
     show (DBVUnixFD     x) = "DBVUnixFD " ++ show x
     show (DBVString     x) = "DBVString " ++ show x
@@ -365,3 +372,22 @@ data Connection = Connection { primConnection :: () -- DBus.Connection
                                                                   SomeDBusValue)))
                              , mainLoop :: ThreadId
                              }
+
+data MethodError = MethodErrorMessage [SomeDBusValue]
+                 | MethodSignatureMissmatch SomeDBusValue
+                   deriving (Show, Typeable)
+
+instance Ex.Exception MethodError
+
+type Serial = Word32
+type Slot = Either [SomeDBusValue] SomeDBusValue -> STM ()
+type AnswerSlots = Map.Map Serial Slot
+
+data DBusConnection =
+    DBusConnection
+        { dBusCreateSerial :: STM Serial
+        , dBusAnswerSlots :: TVar AnswerSlots
+        , dBusWriteLock :: TMVar (BS.Builder -> IO ())
+        , dBusConnectionName :: Text.Text
+        , connectionAliveRef :: TVar Bool
+        }

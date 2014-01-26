@@ -7,7 +7,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module DBus where
+module DBus
+    ( module DBus.Types
+    , module DBus.Object
+    , module DBus.MainLoop
+    , module DBus.Introspect
+    ) where
 
 import           Control.Applicative ((<$>))
 import           Control.Concurrent.STM
@@ -22,48 +27,13 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.IO as Text
 import           Data.Word
+import           System.Environment
 
 import           Data.Singletons hiding (Error)
 import           Data.Singletons.List
 
 import           DBus.Introspect
-import           DBus.Mainloop
+import           DBus.MainLoop
+import           DBus.MessageBus
 import           DBus.Object
 import           DBus.Types
-import           System.Environment
-
--- import qualified DBus.Connection as DBus
-
-
-echo :: Text.Text ->  IO ()
-echo txt = Text.putStrLn txt
-
-checkLen :: Text.Text -> Word8 -> IO Bool
-checkLen txt len = return $ Text.length txt > fromIntegral len
-
-echoMethod = Method (repMethod echo) "echo" ("text" :-> Result "()")
-checkLenMethod = Method (repMethod checkLen)
-                 "checklen"
-                 ("my little text" :-> "length" :-> Result "foo")
-
-myInterface = Interface { interfaceName = "org.pontarius.dbus.testinterface"
-                        , interfaceMethods = [echoMethod, checkLenMethod]
-                        , interfaceAnnotations = []
-                        }
-
-myObject = Object { objectObjectPath = objectPath "myObject"
-                  , objectInterfaces = [myInterface, introspectable myObject]
-                  , objectSubObjects = []
-                  }
-
-root = Object { objectObjectPath = objectPath "/"
-              , objectInterfaces = [introspectable root]
-              , objectSubObjects = [myObject]
-              }
-
-
-main = do
-    transportString <- getEnv "DBUS_SESSION_BUS_ADDRESS"
-    con <- newConnection transportString (objectRoot root)
-    print $ dBusConnectionName con
-    return con

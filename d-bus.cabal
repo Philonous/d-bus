@@ -1,0 +1,72 @@
+name:                d-bus
+version:             0.0.1
+synopsis:            Permissively licensed D-Bus client library
+description:         This library uses modern extensions to the Haskell type system
+                     (including GADTs, DataKinds and TypeFamilies) and the
+                     singletons library to embedd the D-Bus type system. D-Bus
+                     signatures can thus be inferred.
+license:             BSD3
+license-file:        LICENSE
+author:              Philipp Balzarek
+maintainer:          p.balzarek@googlemail.com
+copyright:           2013 Philipp Balzarek
+category:            Network, Desktop
+build-type:          Simple
+cabal-version:       >=1.8
+
+library
+  hs-source-dirs:    src/
+--  ghc-options:       -O2
+  exposed-modules:   DBus
+                   , DBus.Auth
+                   , DBus.Error
+                   , DBus.Introspect
+                   , DBus.MainLoop
+                   , DBus.Message
+                   , DBus.MessageBus
+                   , DBus.Object
+                   , DBus.Representable
+                   , DBus.Signature
+                   , DBus.TH
+                   , DBus.Transport
+                   , DBus.Types
+                   , DBus.Wire
+  build-depends:     base >= 4 && <5
+                   , async
+                   , attoparsec
+                   , binary >= 0.7
+                   , blaze-builder
+                   , bytestring
+                   , conduit >= 1.0
+                   , containers
+                   , data-binary-ieee754
+                   , data-default
+                   , free
+                   , mtl
+                   , network
+                   , singletons
+                   , stm
+                   , template-haskell
+                   , text
+                   , transformers
+                   , xml-conduit
+                   , xml-picklers
+                   , xml-types
+                   , hslogger
+
+-- test-suite tests
+--   type:              exitcode-stdio-1.0
+--   hs-source-dirs:    tests
+--   main-is:           Main.hs
+--   build-depends:     base >= 4 && < 5
+--                    , dbus-ext
+--                    , xml-hamlet
+--                    , QuickCheck
+--                    , text
+--                    , tasty
+--                    , tasty-th
+--                    , tasty-quickcheck
+--                    , singletons
+--                    , bytestring
+--                    , binary
+--                    , mtl

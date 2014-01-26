@@ -17,10 +17,10 @@ import           Control.Applicative ((<$>))
 import           Control.Monad
 import           Data.List (intercalate, find)
 import           Data.Maybe
-import qualified Data.Text as Text
 import           Data.Singletons
-import           Data.Singletons.TH
 import           Data.Singletons.List
+import           Data.Singletons.TH
+import qualified Data.Text as Text
 
 import           DBus.Types
 

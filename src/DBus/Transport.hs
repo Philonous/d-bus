@@ -174,6 +174,6 @@ connectString s = case AP.parseOnly parseTransports
     go ((_, t) : ts) = do
         mbS <- Ex.try $ connectTransport t
         case mbS of
-            Left (e :: DBusError) -> go ts
+            Left (e :: DBusError) -> print e >> go ts
             Right s -> return $ Just s
     go [] = return Nothing

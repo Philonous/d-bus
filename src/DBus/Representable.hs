@@ -65,8 +65,8 @@ instance Representable Int64 where
 
 instance Representable Word64 where
     type RepType Word64 = 'DBusSimpleType TypeUInt64
-    toRep x = DBVUint64 x
-    fromRep (DBVUint64 x) = Just x
+    toRep x = DBVUInt64 x
+    fromRep (DBVUInt64 x) = Just x
 
 instance Representable Double where
     type RepType Double = 'DBusSimpleType TypeDouble
