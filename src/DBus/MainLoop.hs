@@ -145,7 +145,14 @@ connectBus transport handleCalls handleSignals = do
     send s "\0"
     h <- socketToHandle s ReadWriteMode
     debugM "DBus" $ "Running SASL"
-    runSasl (BS.hPutBuilder h) (BS.hGetLine h) external
+    runSasl (\bs -> do
+                  debugM "DBus.Sasl" $ "C: " ++ show (BS.toLazyByteString bs)
+                  BS.hPutBuilder h bs)
+            (do
+                  bs <- BS.hGetLine h
+                  debugM "DBus.Sasl" $ "S: " ++ show bs
+                  return bs)
+            external
     serialCounter <- newTVarIO 1
     let getSerial = do
             s <- readTVar serialCounter

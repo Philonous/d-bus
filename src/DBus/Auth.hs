@@ -179,7 +179,7 @@ runSasl snd' rcv' (SASL s) = do
 external :: SASL BS.ByteString
 external = do
     saslSend (CMAuth "EXTERNAL" "")
-    _ <- expectData
+    "" <- expectData
     saslSend (CMData "")
     ok <- expectOK
     saslSend CMBegin
