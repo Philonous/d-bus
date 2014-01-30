@@ -4,6 +4,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE CPP #-}
 
 module DBus.MainLoop where
 
@@ -29,6 +31,7 @@ import           Data.Singletons
 import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
 import           Data.Word
+import           Foreign.C
 import           Network.Socket
 import           System.Environment
 import           System.IO
@@ -142,7 +145,7 @@ connectBus transport handleCalls handleSignals = do
         Nothing -> C.monadThrow (CouldNotConnect
                                    "All addresses failed to connect")
         Just s -> return s
-    send s "\0"
+    sendCredentials s
     h <- socketToHandle s ReadWriteMode
     debugM "DBus" $ "Running SASL"
     runSasl (\bs -> do
@@ -196,3 +199,13 @@ connectBus transport handleCalls handleSignals = do
         return conn{dBusConnectionName = connName}
 
 type Handler = DBusConnection -> MessageHeader -> [SomeDBusValue] -> IO ()
+
+sendCredentials :: Socket -> IO Int
+#ifdef SEND_CREDENTIALS
+foreign import ccall "send_credentials_and_zero"
+    sendCredentialsAndZero :: CInt -> IO CInt
+
+sendCredentials (MkSocket si _ _ _ _) = fromIntegral <$> sendCredentialsAndZero si
+#else
+sendCredentials s = send s "\0"
+#endif

@@ -53,6 +53,10 @@ library
                    , xml-picklers
                    , xml-types
                    , hslogger
+  if os(freebsd) {
+  c-sources:       src/cbits/credentials.c
+  cpp-options:     -DSEND_CREDENTIALS
+  }
 
 -- test-suite tests
 --   type:              exitcode-stdio-1.0
