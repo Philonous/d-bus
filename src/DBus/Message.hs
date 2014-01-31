@@ -273,14 +273,14 @@ sendBS conn bs = do
 
 
 -- | Asychronously call a method. Returns an STM action that waits for the
--- returned value
-callMethod :: Text.Text
-           -> ObjectPath
-           -> Text.Text
-           -> Text.Text
-           -> [SomeDBusValue]
-           -> [Flag]
-           -> DBusConnection
+-- returned value.
+callMethod :: Text.Text -- ^ Entity to send the message to
+           -> ObjectPath -- ^ Object
+           -> Text.Text -- ^ Interface
+           -> Text.Text -- ^ Member (method) name
+           -> [SomeDBusValue] -- ^ Arguments
+           -> [Flag] -- ^ Method call flags
+           -> DBusConnection -- ^ Connection to send the call over
            -> IO (STM (Either [SomeDBusValue] SomeDBusValue))
 callMethod dest path interface member args flags conn = do
     serial <- atomically $ dBusCreateSerial conn
@@ -307,13 +307,13 @@ getAnswer = (atomically =<<)
 -- If the returned value's type doesn't match the expected type a
 -- 'MethodSignatureMissmatch' is thrown.
 callMethod' :: (SingI (RepType a), Representable a, C.MonadThrow m, MonadIO m) =>
-               Text.Text
-            -> ObjectPath
-            -> Text.Text
-            -> Text.Text
-            -> [SomeDBusValue]
-            -> [Flag]
-            -> DBusConnection
+               Text.Text -- ^ Entity to send the message to
+            -> ObjectPath -- ^ Object
+            -> Text.Text -- ^ Interface
+            -> Text.Text -- ^ Member (method) to call
+            -> [SomeDBusValue] -- ^ Arguments
+            -> [Flag] -- ^ Method call flags
+            -> DBusConnection -- ^ Connection to send the call over
             -> m a
 callMethod' dest path interface member args flags conn = do
     ret <- liftIO . getAnswer

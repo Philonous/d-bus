@@ -27,6 +27,7 @@ library
                    , DBus.Object
                    , DBus.Representable
                    , DBus.Signature
+                   , DBus.Signal
                    , DBus.TH
                    , DBus.Transport
                    , DBus.Types

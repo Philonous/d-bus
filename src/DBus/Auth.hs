@@ -175,6 +175,9 @@ runSasl snd' rcv' (SASL s) = do
     go  snd rcv (Free (Send x f)) = snd x >> go snd rcv f
     go  snd rcv (Free (Recv f  )) = rcv >>=  go snd rcv . f
 
+sasl = do
+    saslSend (CMAuth "" "")
+    saslRecv
 
 external :: SASL BS.ByteString
 external = do

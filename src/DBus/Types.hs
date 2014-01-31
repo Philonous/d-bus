@@ -71,7 +71,6 @@ isPathPrefix p x = case stripObjectPrefix p x of
     Nothing -> False
     Just _ -> True
 
-
 isRoot (ObjectPath True p) = null p
 isRoot _ = False
 

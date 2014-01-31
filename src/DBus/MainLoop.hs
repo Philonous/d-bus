@@ -119,15 +119,32 @@ waitFor conn = atomically $ do
     alive <- readTVar (connectionAliveRef conn)
     when alive retry
 
-data ConnectionType = Session
-                    | System
-                    | Address String
+-- | Which Bus to connect to
+data ConnectionType = Session -- ^ The well-known system bus. First
+                              -- the environmental variable
+                              -- DBUS_SESSION_BUS_ADDRESS is checked and if it
+                              -- doesn't exist the address
+                              -- /unix:path=\/var\/run\/dbus\/system_bus_socket/
+                              -- is used
+                    | System  -- ^ The well-known system bus. Refers to the
+                              -- address stored in the environmental variable
+                              -- DBUS_SESSION_BUS_ADDRESS
+                    | Address String -- ^ The bus at the give addresss
 
+type MethodCallHandler = ( DBusConnection
+                           -> MessageHeader
+                           -> [SomeDBusValue]
+                           -> IO ())
+
+type SignalHandler = ( DBusConnection
+                       -> MessageHeader
+                       -> [SomeDBusValue]
+                       -> IO ())
 
 -- | Create a new connection to a message bus
-connectBus :: ConnectionType
-           -> (DBusConnection -> MessageHeader -> [SomeDBusValue] -> IO ())
-           -> (DBusConnection -> MessageHeader -> [SomeDBusValue] -> IO ())
+connectBus :: ConnectionType -- ^ Bus to connect to
+           -> MethodCallHandler -- ^ Handler for incoming method calls
+           -> SignalHandler  -- ^ Handler for incoming signals
            -> IO DBusConnection
 connectBus transport handleCalls handleSignals = do
     addressString <- case transport of
