@@ -32,7 +32,9 @@ module DBus
     , DBusType(..)
     , Signature(..)
     , typeOf
--- ** ObjectPath
+-- ** Objects
+    , Object(..)
+    , Interface(..)
     , ObjectPath
     , objectPath
     , objectPathToText
@@ -43,6 +45,7 @@ module DBus
 -- * Methods
     , Method(..)
     , MethodWrapper(..)
+    , MethodDescription(..)
     , repMethod
     , callMethod
     , callMethod'
