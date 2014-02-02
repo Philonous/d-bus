@@ -120,13 +120,13 @@ waitFor conn = atomically $ do
     when alive retry
 
 -- | Which Bus to connect to
-data ConnectionType = Session -- ^ The well-known system bus. First
+data ConnectionType = System -- ^ The well-known system bus. First
                               -- the environmental variable
-                              -- DBUS_SESSION_BUS_ADDRESS is checked and if it
+                              -- DBUS_SYSTEM_BUS_ADDRESS is checked and if it
                               -- doesn't exist the address
                               -- /unix:path=\/var\/run\/dbus\/system_bus_socket/
                               -- is used
-                    | System  -- ^ The well-known system bus. Refers to the
+                    | Session -- ^ The well-known session bus. Refers to the
                               -- address stored in the environmental variable
                               -- DBUS_SESSION_BUS_ADDRESS
                     | Address String -- ^ The bus at the give addresss
