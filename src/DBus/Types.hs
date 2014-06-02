@@ -28,9 +28,9 @@ import           Data.List
 import           Data.List (intercalate)
 import qualified Data.Map as Map
 import           Data.Singletons (withSingI)
-import           Data.Singletons.Bool
-import           Data.Singletons.List
-import           Data.Singletons.TH
+import           Data.Singletons.Prelude.Bool
+import           Data.Singletons.Prelude.List
+import           Data.Singletons.TH hiding (Error)
 import qualified Data.Text as Text
 import           Data.Typeable(Typeable)
 import           Data.Word
@@ -140,7 +140,7 @@ type instance ArgsOf (a -> b) = 'Arg (ArgsOf b)
 infixr 0 :->
 data MethodDescription parity where
     (:->) :: Text.Text -> MethodDescription n -> MethodDescription (Arg n)
-    Result :: Text.Text -> MethodDescription Null
+    Result :: Text.Text -> MethodDescription 'Null
 
 genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
 singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]

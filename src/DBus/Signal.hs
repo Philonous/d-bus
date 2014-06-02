@@ -3,7 +3,7 @@ module DBus.Signal where
 
 import           Control.Applicative
 import           Control.Monad.Trans
-import           Data.Conduit (MonadThrow)
+import           Control.Monad.Catch (MonadThrow)
 import qualified Data.List as List
 import           Data.Maybe
 import           Data.Monoid

@@ -18,15 +18,15 @@ import           Control.Monad
 import           Data.List (intercalate, find)
 import           Data.Maybe
 import           Data.Singletons
-import           Data.Singletons.List
+import           Data.Singletons.Prelude.List
 import           Data.Singletons.TH
 import qualified Data.Text as Text
 
 import           DBus.Types
 
 class IsMethod f where
-    type ArgTypes f
-    type ResultType f
+    type ArgTypes f :: [DBusType]
+    type ResultType f :: DBusType
     toMethod :: f -> MethodWrapper (ArgTypes f) (ResultType f)
 
 instance SingI t => IsMethod (IO (DBusValue t)) where

@@ -8,6 +8,7 @@ module DBus.Wire where
 
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad
+import           Control.Monad.Catch (MonadThrow, throwM)
 import           Control.Monad.RWS
 import           Control.Monad.Reader
 import           Control.Monad.State
@@ -16,13 +17,13 @@ import qualified Data.Binary.Get as B
 import qualified Data.Binary.IEEE754 as B
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS
+import qualified Data.Conduit as C
 import           Data.Int
 import           Data.Singletons
-import           Data.Singletons.List
+import           Data.Singletons.Prelude.List
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           Data.Word
-import qualified Data.Conduit as C
 
 import           DBus.Types
 import           DBus.Signature
@@ -355,9 +356,9 @@ getManyPairs len kt vt = do
             GT -> mzero
 
 
-sinkGet :: C.MonadThrow m => B.Get b -> C.ConduitM BS.ByteString o m b
+sinkGet :: MonadThrow m => B.Get b -> C.ConduitM BS.ByteString o m b
 sinkGet f = sink (B.runGetIncremental f)
   where
       sink (B.Done bs _ v)  = C.leftover bs >> return v
-      sink (B.Fail u o e)   = C.monadThrow $ DBusParseError e
+      sink (B.Fail u o e)   = throwM $ DBusParseError e
       sink (B.Partial next) = C.await >>= sink . next

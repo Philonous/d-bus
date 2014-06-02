@@ -33,18 +33,19 @@ library
                    , DBus.Wire
   build-depends:     base >= 4 && <5
                    , async >= 2.0
-                   , attoparsec >= 0.11
+                   , attoparsec >= 0.12
                    , binary >= 0.7
                    , blaze-builder >= 0.3
                    , bytestring >= 0.10
-                   , conduit >= 1.0
+                   , conduit >= 1.1
+                   , conduit-extra >= 1.1
                    , containers >= 0.5
                    , data-binary-ieee754 >= 0.4
                    , data-default >= 0.5
                    , free >= 4.2
                    , mtl >= 2.1
                    , network >= 2.4
-                   , singletons >= 0.9
+                   , singletons >= 1.0
                    , stm >= 2.4
                    , template-haskell >= 2.8
                    , text >= 1.1
@@ -53,6 +54,7 @@ library
                    , xml-picklers >= 0.3
                    , xml-types >= 0.3
                    , hslogger >= 1.2
+                   , exceptions >= 0.6
   if os(freebsd) {
   c-sources:       src/cbits/credentials.c
   cpp-options:     -DSEND_CREDENTIALS

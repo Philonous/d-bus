@@ -7,7 +7,7 @@ import           Control.Monad.Trans (MonadIO)
 import           DBus.Message
 import           DBus.Object
 import           DBus.Types
-import           Data.Conduit (MonadThrow, monadThrow)
+import           Control.Monad.Catch (MonadThrow, throwM)
 import           Data.Default
 import           Data.Singletons
 import qualified Data.Text as Text
@@ -66,7 +66,7 @@ requestName name flags con = do
         2 -> return InQueue
         3 -> return Exists
         4 -> return AlreadyOwner
-        e -> monadThrow . MarshalError $ "Not a ReqeustName reply: " ++ show e
+        e -> throwM . MarshalError $ "Not a ReqeustName reply: " ++ show e
 
 data ReleaseNameReply = Released
                       | NonExistent
@@ -82,7 +82,7 @@ releaseName name con = do
             1 -> return Released
             2 -> return NonExistent
             3 -> return NotOwner
-            e -> monadThrow . MarshalError $ "Not a ReleaseName reply: " ++ show e
+            e -> throwM . MarshalError $ "Not a ReleaseName reply: " ++ show e
 
 listQueuedOwners :: (MonadIO m, MonadThrow m) =>
                     Text.Text

@@ -13,7 +13,7 @@ import           Control.Applicative
 import           Control.Concurrent.STM
 import           Control.Monad
 import           Control.Monad.Reader
-import qualified Data.Attoparsec.Char8 as AP8
+import qualified Data.Attoparsec.ByteString.Char8 as AP8
 import qualified Data.Binary.Get as B
 import           Data.Bits
 import qualified Data.ByteString as BS
@@ -27,6 +27,7 @@ import           Data.Singletons
 import qualified Data.Text as Text
 import           Data.Word
 import           System.Mem.Weak
+import           Control.Monad.Catch (MonadThrow, throwM)
 
 import           DBus.Error
 import           DBus.Representable
@@ -262,7 +263,7 @@ getMessage = do
                 getDBVByType t
         return (header, args)
 
-parseMessages :: C.MonadThrow m =>
+parseMessages :: MonadThrow m =>
                  C.ConduitM BS.ByteString (MessageHeader, [SomeDBusValue]) m b
 parseMessages = forever $ C.yield =<< sinkGet getMessage
 
@@ -306,7 +307,7 @@ getAnswer = (atomically =<<)
 -- | Synchronously call a method. Returned errors are thrown as 'MethodError's.
 -- If the returned value's type doesn't match the expected type a
 -- 'MethodSignatureMissmatch' is thrown.
-callMethod' :: (SingI (RepType a), Representable a, C.MonadThrow m, MonadIO m) =>
+callMethod' :: (SingI (RepType a), Representable a, MonadThrow m, MonadIO m) =>
                Text.Text -- ^ Entity to send the message to
             -> ObjectPath -- ^ Object
             -> Text.Text -- ^ Interface
@@ -319,7 +320,7 @@ callMethod' dest path interface member args flags conn = do
     ret <- liftIO . getAnswer
                $ callMethod dest path interface member args flags conn
     case ret of
-        Left e -> C.monadThrow $ MethodErrorMessage e
+        Left e -> throwM $ MethodErrorMessage e
         Right r -> case fromRep =<< dbusValue r of
-            Nothing -> C.monadThrow $ MethodSignatureMissmatch r
+            Nothing -> throwM $ MethodSignatureMissmatch r
             Just x -> return x

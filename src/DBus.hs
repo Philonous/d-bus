@@ -49,6 +49,7 @@ module DBus
     , repMethod
     , callMethod
     , callMethod'
+    , MsgError(..)
 -- * Introspection
     , addIntrospectable
 -- * Message Bus

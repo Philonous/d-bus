@@ -16,6 +16,7 @@ import           Control.Concurrent.MVar
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
+import           Control.Monad.Catch (MonadThrow, throwM)
 import           Control.Monad.Fix (mfix)
 import           Control.Monad.Trans
 import           Data.Binary.Get as B
@@ -38,7 +39,7 @@ import           System.IO
 import           System.Log.Logger
 import           System.Mem.Weak
 
-import           Data.Attoparsec as AP
+import           Data.Attoparsec.ByteString as AP
 import           Data.List (intercalate)
 import           Data.Monoid
 import           Numeric
@@ -99,7 +100,7 @@ objectRoot o conn header args | fs <- fields header
             case ret of
                 Left e -> return $ Left
                               (MsgError "org.freedesktop.DBus.Error.Failed"
-                                        (Just $ "Method threw exception "
+                                        (Just $ "Method threw exception: "
                                          `Text.append` Text.pack (show e)) [])
                 Right r -> return $  r
     let bs = either (errToErrMessage serial) (mkReturnMethod serial) ret
@@ -159,7 +160,7 @@ connectBus transport handleCalls handleSignals = do
     debugM "DBus" $ "connecting to " ++ addressString
     mbS <- connectString addressString
     s <- case mbS of
-        Nothing -> C.monadThrow (CouldNotConnect
+        Nothing -> throwM (CouldNotConnect
                                    "All addresses failed to connect")
         Just s -> return s
     sendCredentials s
