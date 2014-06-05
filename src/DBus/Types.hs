@@ -330,9 +330,21 @@ data Annotation = Annotation { annotationName :: Text.Text
                              , annotationValue :: Text.Text
                              } deriving (Eq, Show, Data, Typeable)
 
+
+data SignalArgument =
+    SignalArgument { signalArgumentName :: Text.Text
+                   , signalArgumentType :: DBusType
+                   }
+
+data SignalInterface = SignalI { signalName :: Text.Text
+                               , signalArguments :: [SignalArgument]
+                               , signalAnnotations :: [Annotation]
+                               }
+
 data Interface = Interface { interfaceName :: Text.Text
                            , interfaceMethods :: [Method]
                            , interfaceAnnotations :: [Annotation]
+                           , interfaceSignals :: [SignalInterface]
                            }
 
 instance Eq Interface where

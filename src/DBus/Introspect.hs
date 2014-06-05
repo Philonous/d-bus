@@ -205,11 +205,25 @@ introspectMethods = map introspectMethod
         in zipWith (\n t -> IArgument n t (Just In)) ts args
            ++ maybeToList ((\t -> IArgument r t (Just Out)) <$> res )
 
+
+introspectSignalArgument a =
+    IArgument { iArgumentName = signalArgumentName a
+              , iArgumentType = signalArgumentType a
+              , iArgumentDirection = Nothing
+              }
+
+introspectSignal s =
+    ISignal { iSignalName = signalName s
+            , iSignalArguments = introspectSignalArgument <$> signalArguments s
+            , iSignalAnnotations = signalAnnotations s
+            }
+
 introspectInterface :: Interface -> IInterface
 introspectInterface i = IInterface { iInterfaceName = interfaceName i
                                    , iInterfaceMethods = introspectMethods
                                                            $ interfaceMethods i
-                                   , iInterfaceSignals = [] -- TODO
+                                   , iInterfaceSignals =
+                                       introspectSignal <$> interfaceSignals i
                                    , iInterfaceProperties = [] -- TODO
                                    , iInterfaceAnnotations = [] -- TODO
                                    }
@@ -232,6 +246,7 @@ introspectMethod object = Method (repMethod $ introspect object)
 introspectable :: Object -> Interface
 introspectable o = Interface{ interfaceName = "org.freedesktop.DBus.Introspectable"
                             , interfaceMethods = [introspectMethod o]
+                            , interfaceSignals = []
                             , interfaceAnnotations = []
                             }
 
