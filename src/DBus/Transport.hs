@@ -7,8 +7,8 @@ import           Control.Applicative ((<$>))
 import           Control.Concurrent
 import qualified Control.Exception as Ex
 import           Control.Monad
-import           Data.Attoparsec as AP
-import           Data.Attoparsec.Char8 as AP8
+import           Data.Attoparsec.ByteString as AP
+import           Data.Attoparsec.ByteString.Char8 as AP8
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy.Builder as BS

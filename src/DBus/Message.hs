@@ -6,6 +6,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module DBus.Message where
 
@@ -24,10 +25,12 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Singletons
+import           Data.Singletons.Decide
 import qualified Data.Text as Text
 import           Data.Word
 import           System.Mem.Weak
 import           Control.Monad.Catch (MonadThrow, throwM)
+import           Data.Singletons.Prelude.List
 
 import           DBus.Error
 import           DBus.Representable
@@ -192,7 +195,7 @@ methodCall sid dest path interface member args flags =
 methodReturn :: Word32
              -> Word32
              -> Text.Text
-             -> [SomeDBusValue]
+             -> SomeDBusArguments
              -> BS.Builder
 methodReturn sid rsid dest args =
     let hFields = emptyHeaderFields{ hFDestination = Just dest
@@ -207,7 +210,7 @@ methodReturn sid rsid dest args =
                  , serial = sid
                  , fields = hFields
                  }
-    in serializeMessage header args
+    in serializeMessage header (argsToValues args)
 
 errorMessage :: Word32
              -> Maybe Word32
@@ -282,7 +285,7 @@ callMethod :: Text.Text -- ^ Entity to send the message to
            -> [SomeDBusValue] -- ^ Arguments
            -> [Flag] -- ^ Method call flags
            -> DBusConnection -- ^ Connection to send the call over
-           -> IO (STM (Either [SomeDBusValue] SomeDBusValue))
+           -> IO (STM (Either [SomeDBusValue] [SomeDBusValue] ))
 callMethod dest path interface member args flags conn = do
     serial <- atomically $ dBusCreateSerial conn
     ref <- newEmptyTMVarIO
@@ -307,6 +310,24 @@ getAnswer = (atomically =<<)
 -- | Synchronously call a method. Returned errors are thrown as 'MethodError's.
 -- If the returned value's type doesn't match the expected type a
 -- 'MethodSignatureMissmatch' is thrown.
+--
+-- This function handles multiple return values in the following way:
+--
+-- * If the method returns multiple values and the RepType of the expected
+-- return value is a struct it tries to match up the arguments with the struct
+-- fields
+--
+-- * If the method returns /a single struct/ and the RepType is a struct it will
+-- try to match up those two
+--
+-- * If the RepType of the expected return value is not a struct it will only
+-- match if the method returned exactly one value and those two match up (as per
+-- normal)
+--
+-- This means that if the RepType of the expected return value is a struct it
+-- might be matched in two ways: Either by the method returning multiple values
+-- or the method returning a single struct. At the moment there is no way to
+-- force this function to only match either
 callMethod' :: (SingI (RepType a), Representable a, MonadThrow m, MonadIO m) =>
                Text.Text -- ^ Entity to send the message to
             -> ObjectPath -- ^ Object
@@ -321,6 +342,24 @@ callMethod' dest path interface member args flags conn = do
                $ callMethod dest path interface member args flags conn
     case ret of
         Left e -> throwM $ MethodErrorMessage e
-        Right r -> case fromRep =<< dbusValue r of
-            Nothing -> throwM $ MethodSignatureMissmatch r
-            Just x -> return x
+        Right rvs -> case listToSomeArguments rvs of
+            sr@(SDBA (r :: DBusArguments ats)) ->
+                maybe (throwM $ MethodSignatureMissmatch rvs) return
+                $ fix $ \(_ :: Maybe ret) ->
+                case sing :: Sing (RepType ret) of
+                    STypeStruct ts -> case (r, sing :: Sing ats) of
+                        (ArgsNil, SNil) -> Nothing
+                        (ArgsCons r' ArgsNil, SCons a SNil) ->
+                            case a %~ (sing :: Sing (RepType ret)) of
+                                Proved Refl -> fromRep r'
+                                Disproved _ -> Nothing
+                        _ -> withSingI ts
+                               $ fromRep . DBVStruct =<< maybeArgsToStruct r
+                    STypeUnit -> case r of
+                        ArgsNil -> fromRep DBVUnit
+                        _ -> Nothing
+                    _ -> case (sing :: Sing ats, r) of
+                        (SCons at SNil, ArgsCons r' ArgsNil) ->
+                            case at %~ (sing :: Sing (RepType ret)) of
+                                Proved Refl -> fromRep r'
+                                Disproved _ -> Nothing

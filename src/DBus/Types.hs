@@ -10,6 +10,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module DBus.Types where
 
@@ -133,18 +135,84 @@ data Parity = Null
             | Arg Parity
               deriving (Eq, Show, Data, Typeable)
 
-type family ArgsOf x :: Parity
-type instance ArgsOf (IO x) = 'Null
-type instance ArgsOf (a -> b) = 'Arg (ArgsOf b)
+type family ArgsOf x :: Parity where
+     ArgsOf (IO x) = 'Null
+     ArgsOf (a -> b) = 'Arg (ArgsOf b)
+
+infixr 0 :>
+data ResultDescription parity where
+    (:>) :: Text.Text -> ResultDescription n -> ResultDescription (Arg n)
+    ResultNil :: ResultDescription 'Null
 
 infixr 0 :->
-data MethodDescription parity where
-    (:->) :: Text.Text -> MethodDescription n -> MethodDescription (Arg n)
-    Result :: Text.Text -> MethodDescription 'Null
+data MethodDescription as rs where
+    (:->) :: Text.Text -> MethodDescription n t -> MethodDescription (Arg n) t
+    Result :: ResultDescription ts -> MethodDescription 'Null ts
 
 genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
 singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]
--- singDecideInstances [''DBusSimpleType]
+singDecideInstances [''DBusSimpleType, ''DBusType]
+
+data DBusArguments :: [DBusType] -> * where
+    ArgsNil :: DBusArguments '[]
+    ArgsCons :: DBusValue a -> DBusArguments as -> DBusArguments (a ': as)
+
+data SomeDBusArguments where
+    SDBA :: SingI ts => DBusArguments ts -> SomeDBusArguments
+
+deriving instance Show SomeDBusArguments
+
+listToSomeArguments :: [SomeDBusValue] -> SomeDBusArguments
+listToSomeArguments [] = SDBA ArgsNil
+listToSomeArguments (DBV v : xs) =
+    case listToSomeArguments xs of
+        SDBA sdba -> SDBA (ArgsCons v sdba)
+
+argsToValues :: SomeDBusArguments -> [SomeDBusValue]
+argsToValues (SDBA (a :: DBusArguments t)) = argsToValues' (sing :: Sing t) a
+  where
+    argsToValues' :: Sing ts -> DBusArguments ts -> [SomeDBusValue]
+    argsToValues' (SNil) ArgsNil = []
+    argsToValues' (SCons t ts) (ArgsCons a as) =
+        withSingI t $ (DBV a) : argsToValues' ts as
+
+argsToStruct :: DBusArguments (t ': ts) -> DBusStruct (t ': ts)
+argsToStruct (ArgsCons x ArgsNil) = StructSingleton x
+argsToStruct (ArgsCons x xs@(ArgsCons _ _)) = StructCons x (argsToStruct xs)
+
+structToArgs :: DBusStruct ts -> DBusArguments ts
+structToArgs (StructSingleton v) = ArgsCons v ArgsNil
+structToArgs (StructCons v vs) = ArgsCons v (structToArgs vs)
+
+maybeArgsToStruct :: (SingI ts, SingI ss) =>
+                     DBusArguments ts
+                  -> Maybe (DBusStruct ss)
+maybeArgsToStruct (args :: DBusArguments (ts :: [DBusType])) =
+    fix $ \(_ :: Maybe (DBusStruct (ss :: [DBusType]))) ->
+    let singt = sing :: Sing ts
+        sings = sing :: Sing ss
+    in case singt of
+        SNil -> Nothing
+        SCons t' ts'  -> case singt %~ sings of
+            Proved Refl -> withSingI ts' (Just $ argsToStruct args)
+            Disproved _ -> Nothing
+
+
+singletonArg :: DBusValue a -> DBusArguments '[a]
+singletonArg x = ArgsCons x ArgsNil
+
+instance Eq (DBusArguments t) where
+    ArgsNil == ArgsNil = True
+    ArgsCons x xs == ArgsCons y ys =
+        x == y && xs == ys
+
+instance SingI a => Show (DBusArguments a) where
+    show xs = showArgs sing xs
+
+showArgs :: Sing a -> DBusArguments a -> String
+showArgs (SNil) ArgsNil = "ArgsNil"
+showArgs (SCons t ts) (ArgsCons x xs) =
+    withSingI t $ "ArgsCons (" ++ show x  ++ ") (" ++ showArgs ts xs ++ ")"
 
 data DBusStruct :: [DBusType] -> * where
     StructSingleton :: DBusValue a -> DBusStruct '[a]
@@ -310,19 +378,19 @@ class Representable a where
 -- Objects
 ------------------------------------------------
 data MethodWrapper av rv where
-    MReturn :: SingI t => IO (DBusValue t) -> MethodWrapper '[] t
+    MReturn :: SingI ts => IO (DBusArguments ts) -> MethodWrapper '[] ts
     MAsk    :: SingI t => (DBusValue t -> MethodWrapper avs rv )
                        -> MethodWrapper (t ': avs) rv
 
-type family ArgParity (x :: [DBusType]) :: Parity
-type instance ArgParity '[] = 'Null
-type instance ArgParity (x ': xs) = Arg (ArgParity xs)
+type family ArgParity (x :: [DBusType]) :: Parity where
+    ArgParity '[] = 'Null
+    ArgParity (x ': xs) = Arg (ArgParity xs)
 
 data Method where
-    Method :: (SingI avs, SingI t) =>
-              MethodWrapper avs t
+    Method :: (SingI avs, SingI ts) =>
+              MethodWrapper avs ts
            -> Text.Text
-           -> MethodDescription (ArgParity avs)
+           -> MethodDescription (ArgParity avs) (ArgParity ts)
            -> Method
 
 
@@ -385,13 +453,13 @@ data Connection = Connection { primConnection :: () -- DBus.Connection
                              }
 
 data MethodError = MethodErrorMessage [SomeDBusValue]
-                 | MethodSignatureMissmatch SomeDBusValue
+                 | MethodSignatureMissmatch [SomeDBusValue]
                    deriving (Show, Typeable)
 
 instance Ex.Exception MethodError
 
 type Serial = Word32
-type Slot = Either [SomeDBusValue] SomeDBusValue -> STM ()
+type Slot = Either [SomeDBusValue] [SomeDBusValue] -> STM ()
 type AnswerSlots = Map.Map Serial Slot
 
 data DBusConnection =

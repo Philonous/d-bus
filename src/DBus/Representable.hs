@@ -96,8 +96,8 @@ instance Representable BS.ByteString  where
     fromRep (DBVByteArray bs) = Just bs
     fromRep (DBVArray bs) = BS.pack <$> mapM fromRep bs
 
-type family FromSimpleType (t :: DBusType) :: DBusSimpleType
-type instance FromSimpleType ('DBusSimpleType k) = k
+type family FromSimpleType (t :: DBusType) :: DBusSimpleType where
+    FromSimpleType ('DBusSimpleType k) = k
 
 instance ( Ord k
          , Representable k

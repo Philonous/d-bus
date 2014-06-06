@@ -3,8 +3,8 @@ module DBus.Signature where
 
 import           Control.Applicative ((<$>))
 import           Control.Monad
-import qualified Data.Attoparsec as AP
-import qualified Data.Attoparsec.Char8 as AP
+import qualified Data.Attoparsec.ByteString as AP
+import qualified Data.Attoparsec.ByteString.Char8 as AP
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Builder as BS

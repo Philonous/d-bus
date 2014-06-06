@@ -10,8 +10,8 @@ module DBus.Auth where
 import           Control.Applicative
 import           Control.Monad.Error
 import           Control.Monad.Free
-import qualified Data.Attoparsec as AP
-import qualified Data.Attoparsec.Char8 as AP8
+import qualified Data.Attoparsec.ByteString as AP
+import qualified Data.Attoparsec.ByteString.Char8 as AP8
 import           Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS

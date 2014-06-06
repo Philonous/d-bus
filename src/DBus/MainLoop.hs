@@ -54,26 +54,23 @@ import           DBus.Types
 import           DBus.Wire
 
 handleMessage handleCall handleSignals answerSlots (header, body) =
-    case messageType header of
-        MethodCall -> handleCall header body
-        MethodReturn -> handleReturn True
-        Error -> handleError
-        Signal -> handleSignals header body
-        _ -> return ()
+        case messageType header of
+            MethodCall -> handleCall header body
+            MethodReturn -> handleReturn True
+            Error -> handleError
+            Signal -> handleSignals header body
+            _ -> return ()
   where
     handleReturn nonError = case hFReplySerial $ fields header of
         Nothing -> return ()
         Just s -> atomically $ do
             slots <- readTVar answerSlots
-            let ret = case body of
-                    [] -> DBV DBVUnit
-                    (x:_) -> x
             case Map.lookup s slots of
                 Nothing -> return ()
                 Just putSlot -> do
                     writeTVar answerSlots (Map.delete s slots)
                     putSlot $ if nonError
-                              then Right ret
+                              then Right body
                               else Left body
     handleError = case hFReplySerial $ fields header of
         Nothing -> return () -- TODO: handle non-response errors
@@ -91,7 +88,7 @@ objectRoot o conn header args | fs <- fields header
                               = Ex.handle (\e -> hPutStrLn stderr (show ( e:: Ex.SomeException))) $ do
     let errToErrMessage s e = errorMessage s (Just ser) sender (errorName e)
                                              (errorText e) (errorBody e)
-        mkReturnMethod s arg = methodReturn s ser sender (filter notUnit [arg])
+        mkReturnMethod s args = methodReturn s ser sender args
     serial <- atomically $ dBusCreateSerial conn
     ret <- case callAtPath o path iface member args of
         Left e -> return $ Left e
