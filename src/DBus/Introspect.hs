@@ -75,7 +75,7 @@ data ISignal = ISignal { iSignalName :: Text.Text
                      } deriving (Eq, Show, Data, Typeable)
 
 data IProperty = IProperty { iPropertyName :: Text.Text
-                           , iPropertType :: DBusType
+                           , iPropertyType :: DBusType
                            , iPropertyAccess :: IPropertyAccess
                            , iPropertyAnnotation :: [Annotation]
                            } deriving (Eq, Show, Data, Typeable)
@@ -218,13 +218,29 @@ introspectSignal s =
             , iSignalAnnotations = signalAnnotations s
             }
 
+propertyAccess (Property{propertyAccessors = PropertyWrapper mbSet mbGet})
+    = case (mbSet, mbGet) of
+    (Just{}, Just{}) -> ReadWrite
+    (Nothing, Just{}) -> Read
+    (Just{}, Nothing) -> Write
+    (Nothing, Nothing) -> error "iPropertyAccess: Both getter and setter are nothing"
+
+
+introspectProperty p = IProperty { iPropertyName = propertyName p
+                                 , iPropertyType = propertyType p
+                                 , iPropertyAccess = propertyAccess p
+                                 , iPropertyAnnotation = [] -- TODO
+                                 }
+
 introspectInterface :: Interface -> IInterface
 introspectInterface i = IInterface { iInterfaceName = interfaceName i
                                    , iInterfaceMethods = introspectMethods
                                                            $ interfaceMethods i
                                    , iInterfaceSignals =
                                        introspectSignal <$> interfaceSignals i
-                                   , iInterfaceProperties = [] -- TODO
+                                   , iInterfaceProperties =
+                                       introspectProperty
+                                         <$> interfaceProperties i
                                    , iInterfaceAnnotations = [] -- TODO
                                    }
 
@@ -248,6 +264,7 @@ introspectable o = Interface{ interfaceName = "org.freedesktop.DBus.Introspectab
                             , interfaceMethods = [introspectMethod o]
                             , interfaceSignals = []
                             , interfaceAnnotations = []
+                            , interfaceProperties = []
                             }
 
 addIntrospectable :: Object -> Object

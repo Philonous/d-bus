@@ -6,6 +6,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module DBus.Representable where
 
 import           DBus.Types
@@ -82,6 +84,11 @@ instance Representable ObjectPath where
     type RepType ObjectPath = 'DBusSimpleType TypeObjectPath
     toRep x = DBVObjectPath x
     fromRep (DBVObjectPath x) = Just x
+
+instance Representable (DBusValue TypeVariant) where
+    type RepType (DBusValue TypeVariant) = TypeVariant
+    toRep = id
+    fromRep = Just
 
 instance ( Representable a , SingI (RepType a))
          => Representable [a]  where

@@ -56,10 +56,10 @@ renderRule mr = Text.concat . TextL.toChunks . TB.toLazyText .
                            <> TB.singleton '\''
     boolToText True  = "true"
     boolToText False = "false"
-    fromMessageType MethodCall = "method_call"
-    fromMessageType MethodReturn = "method_return"
-    fromMessageType Signal = "signal"
-    fromMessageType Error = "error"
+    fromMessageType MessageTypeMethodCall = "method_call"
+    fromMessageType MessageTypeMethodReturn = "method_return"
+    fromMessageType MessageTypeSignal = "signal"
+    fromMessageType MessageTypeError = "error"
     ft = TB.fromText
     num i = TB.fromText . Text.pack $ show i
 
@@ -69,7 +69,7 @@ matchSignal :: MessageHeader -> MatchRule -> Bool
 matchSignal header rule =
     let fs = fields header
     in and $ catMaybes
-       [ Just $ messageType header == Signal
+       [ Just $ messageType header == MessageTypeSignal
        , (\x -> hFMember fs == Just x ) <$> mrMember rule
        , (\x -> hFInterface fs == Just x ) <$> mrInterface rule
        , (\(ns, x) -> case hFPath fs of

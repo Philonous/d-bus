@@ -12,18 +12,22 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module DBus.Types where
 
+import           Control.Applicative
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
+import           Control.Monad.Trans
 import           Control.Monad.Trans.Error
+import           Control.Monad.Writer.Strict
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS
-import           Data.Data(Data)
+import           Data.Data (Data)
 import           Data.Function (fix, on)
 import           Data.Int
 import           Data.List
@@ -34,7 +38,7 @@ import           Data.Singletons.Prelude.Bool
 import           Data.Singletons.Prelude.List
 import           Data.Singletons.TH hiding (Error)
 import qualified Data.Text as Text
-import           Data.Typeable(Typeable)
+import           Data.Typeable (Typeable)
 import           Data.Word
 import           Unsafe.Coerce (unsafeCoerce)
 
@@ -46,6 +50,9 @@ data ObjectPath = ObjectPath { opAbsolute :: Bool
                              , opParts :: [Text.Text]
                              } deriving (Eq, Data, Typeable)
 
+
+type InterfaceName = Text.Text
+type MemberName = Text.Text
 
 
 newtype Signature = Signature {fromSignature :: [DBusType]}
@@ -135,8 +142,36 @@ data Parity = Null
             | Arg Parity
               deriving (Eq, Show, Data, Typeable)
 
+
+genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
+singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]
+singDecideInstances [''DBusSimpleType, ''DBusType]
+
+
+-- | A Transformer for (IO) actions that might want to send a signal.
+newtype SignalT m a = SignalT { unSignal :: WriterT [Signal] m a}
+                      deriving ( Functor
+                               , Applicative
+                               , Monad
+                               , MonadTrans )
+
+data Signal = Signal { signalPath :: ObjectPath
+                     , signalInterface :: InterfaceName
+                     , signalMember :: MemberName
+                     , signalBody :: [SomeDBusValue]
+                     }
+
+runSignalT :: SignalT m a -> m (a, [Signal])
+runSignalT (SignalT w) = runWriterT w
+
+signal :: Monad m => Signal -> SignalT m ()
+signal sig = SignalT $ tell [sig]
+
+
+
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
+     ArgsOf (SignalT IO x) = 'Null
      ArgsOf (a -> b) = 'Arg (ArgsOf b)
 
 infixr 0 :>
@@ -149,9 +184,6 @@ data MethodDescription as rs where
     (:->) :: Text.Text -> MethodDescription n t -> MethodDescription (Arg n) t
     Result :: ResultDescription ts -> MethodDescription 'Null ts
 
-genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
-singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]
-singDecideInstances [''DBusSimpleType, ''DBusType]
 
 data DBusArguments :: [DBusType] -> * where
     ArgsNil :: DBusArguments '[]
@@ -377,8 +409,11 @@ class Representable a where
 ------------------------------------------------
 -- Objects
 ------------------------------------------------
+
+
+
 data MethodWrapper av rv where
-    MReturn :: SingI ts => IO (DBusArguments ts) -> MethodWrapper '[] ts
+    MReturn :: SingI ts => SignalT IO (DBusArguments ts) -> MethodWrapper '[] ts
     MAsk    :: SingI t => (DBusValue t -> MethodWrapper avs rv )
                        -> MethodWrapper (t ': avs) rv
 
@@ -393,6 +428,28 @@ data Method where
            -> MethodDescription (ArgParity avs) (ArgParity ts)
            -> Method
 
+data PropertyEmitsChangedSignal = PECSTrue
+                                | PECSInvalidates
+                                | PECSFalse
+
+
+data PropertyWrapper t where
+    PropertyWrapper :: forall t. SingI t =>
+                       { setProperty :: Maybe (DBusValue t -> SignalT IO Bool)
+                         -- | ^ setter for the property. Returns
+                       , getProperty :: Maybe (SignalT IO (DBusValue t))
+                       } -> PropertyWrapper t
+
+data Property where
+    Property :: forall t . (SingI t) =>
+                { propertyName :: Text.Text
+                , propertyAccessors :: PropertyWrapper t
+                , propertyEmitsChangedSignal :: PropertyEmitsChangedSignal
+                } -> Property
+
+propertyType :: Property -> DBusType
+propertyType Property{propertyAccessors = accs :: PropertyWrapper t}
+    = fromSing (sing :: Sing t)
 
 data Annotation = Annotation { annotationName :: Text.Text
                              , annotationValue :: Text.Text
@@ -413,6 +470,7 @@ data Interface = Interface { interfaceName :: Text.Text
                            , interfaceMethods :: [Method]
                            , interfaceAnnotations :: [Annotation]
                            , interfaceSignals :: [SignalInterface]
+                           , interfaceProperties :: [Property]
                            }
 
 instance Eq Interface where

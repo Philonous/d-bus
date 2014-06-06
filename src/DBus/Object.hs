@@ -10,19 +10,27 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PatternGuards #-}
 
 module DBus.Object where
 
 import           Control.Applicative ((<$>))
 import           Control.Monad
+import           Control.Monad.Trans
 import           Data.List (intercalate, find)
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Singletons
 import           Data.Singletons.Prelude.List
 import           Data.Singletons.TH
+import           Data.String
+import           Data.Text (Text)
 import qualified Data.Text as Text
 
+
 import           DBus.Types
+import           DBus.Representable
 
 -- | IsMethod is a Helper class to create MethodWrappers without having to
 -- explicitly unwrap all the function arguments.
@@ -34,6 +42,11 @@ class IsMethod f where
 instance SingI t => IsMethod (IO (DBusArguments t)) where
     type ArgTypes (IO (DBusArguments ts)) = '[]
     type ResultType (IO (DBusArguments ts)) = ts
+    toMethod = MReturn. lift
+
+instance SingI t => IsMethod (SignalT IO (DBusArguments t)) where
+    type ArgTypes (SignalT IO (DBusArguments ts)) = '[]
+    type ResultType (SignalT IO (DBusArguments ts)) = ts
     toMethod = MReturn
 
 instance (IsMethod f, SingI t) => IsMethod (DBusValue t -> f) where
@@ -71,6 +84,12 @@ instance (Representable t, SingI (RepType t), SingI (FlattenRepType (RepType t))
          => RepMethod (IO t) where
     type RepMethodArgs (IO t) = '[]
     type RepMethodValue (IO t) = FlattenRepType (RepType t)
+    repMethod f = MReturn $ flattenRep `liftM` lift f
+
+instance (Representable t, SingI (RepType t), SingI (FlattenRepType (RepType t)))
+         => RepMethod (SignalT IO t) where
+    type RepMethodArgs (SignalT IO t) = '[]
+    type RepMethodValue (SignalT IO t) = FlattenRepType (RepType t)
     repMethod f = MReturn $ flattenRep `liftM` f
 
 instance (RepMethod b, Representable a, SingI (RepType a) )
@@ -94,13 +113,13 @@ instance (RepMethod b, Representable a, SingI (RepType a) )
 runMethodW :: SingI at =>
                MethodWrapper at rt
             -> [SomeDBusValue]
-            -> Maybe (IO (DBusArguments rt))
+            -> Maybe (SignalT IO (DBusArguments rt))
 runMethodW m args = runMethodW' sing args m
 
 runMethodW' :: Sing at
              -> [SomeDBusValue]
              -> MethodWrapper at rt
-             -> Maybe (IO (DBusArguments rt))
+             -> Maybe (SignalT IO (DBusArguments rt))
 runMethodW' SNil         []         (MReturn f) = Just f
 runMethodW' (SCons t ts) (arg:args) (MAsk f)    = (runMethodW' ts args . f )
                                                   =<< dbusValue arg
@@ -115,7 +134,7 @@ methodWSignature (_ :: MethodWrapper at rt) =
     )
 
 
-runMethod :: Method -> [SomeDBusValue] -> Maybe (IO SomeDBusArguments)
+runMethod :: Method -> [SomeDBusValue] -> Maybe (SignalT IO SomeDBusArguments)
 runMethod (Method m _ _) args = liftM SDBA <$> runMethodW m args
 
 methodSignature :: Method -> ([DBusType], [DBusType])
@@ -159,27 +178,105 @@ findObject path o = case stripObjectPrefix (objectObjectPath o) path of
                  else listToMaybe . catMaybes $
                         (findObject suff <$> objectSubObjects o)
 
+errorFailed msg = (MsgError "org.freedesktop.DBus.Error.Failed"
+                   (Just msg)
+                   [])
+
+-- noSuchInterface, noSuchProperty, propertyNotReadable, propertyNotReadable
+noSuchInterface = errorFailed "No such interface"
+noSuchProperty = errorFailed "No such property"
+propertyNotReadable = errorFailed "Property is not readable"
+propertyNotWriteable = errorFailed "Property is not writeable"
+argTypeMismatch = errorFailed "Argument type missmatch"
+
+findProperty o ifaceName prop
+    = case find ((== ifaceName) . interfaceName) $ objectInterfaces o of
+        Nothing -> Left noSuchInterface
+        Just iface -> case find ((== prop) . propertyName)
+                              $ interfaceProperties iface of
+            Nothing -> Left noSuchProperty
+            Just p -> Right p
+
+propertyInterface = "org.freedesktop.DBus.Properties"
+
+handleProperty :: Object
+               -> ObjectPath
+               -> MemberName
+               -> [SomeDBusValue]
+               -> Either MsgError (SignalT IO SomeDBusArguments)
+handleProperty o _ "Get" [mbIface, mbProp]
+    | Just ifaceName <- fromRep =<< dbusValue mbIface
+    , Just propName <- fromRep =<< dbusValue mbProp
+    = findProperty o ifaceName propName
+      >>= (\Property{ propertyAccessors = accs} ->
+            case getProperty accs of
+                Nothing -> Left propertyNotReadable
+                Just rd -> Right $ SDBA . singletonArg <$> rd)
+handleProperty o path "Set" [mbIface , mbProp, mbVal]
+    | Just ifaceName <- fromRep =<< dbusValue mbIface
+    , Just propName <- fromRep =<< dbusValue mbProp
+    = findProperty o ifaceName propName
+      >>= (\prop@Property{ propertyAccessors = accs} -> do
+          rd <- maybe (Left propertyNotWriteable) Right (setProperty accs)
+          v <- maybe (Left argTypeMismatch) Right (dbusValue mbVal)
+          Right $ do
+              invalidated <- rd v
+              when invalidated $ case propertyEmitsChangedSignal prop of
+                  PECSTrue ->
+                      signal
+                        Signal
+                          { signalPath = path
+                          , signalInterface = propertyInterface
+                          , signalMember = "PropertiesChanged"
+                          , signalBody =
+                              [ DBV $
+                                toRep ( ifaceName
+                                      , Map.fromList [(propName , DBVVariant v)]
+                                      , [] :: [Text]
+                                      )
+                              ]
+                          }
+                  PECSInvalidates ->
+                      signal
+                        Signal
+                          { signalPath = path
+                          , signalInterface = propertyInterface
+                          , signalMember = "PropertiesChanged"
+                          , signalBody =
+                              [ DBV $ toRep
+                                ( ifaceName
+                                , Map.empty :: Map.Map Text
+                                                       (DBusValue (TypeVariant))
+                                , [propName]
+                                )
+                              ]
+                          }
+                  PECSFalse -> return ()
+              return (SDBA ArgsNil))
+handleProperty _ _ _ _ = Left argTypeMismatch
+
 callAtPath :: Object
            -> ObjectPath
            -> Text.Text
            -> Text.Text
            -> [SomeDBusValue]
-           -> Either MsgError (IO SomeDBusArguments)
+           -> Either MsgError (SignalT IO SomeDBusArguments)
 callAtPath root path interface member args = case findObject path root of
     Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
                                      (Just . Text.pack $ "No such object "
                                                           ++ show path)
                                      [])
-    Just o -> case find ((== interface) . interfaceName) $ objectInterfaces o of
-        Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
-                                     (Just "No such interface")
-                                     [])
-        Just i -> case find ((== member) . methodName) $ interfaceMethods i of
-            Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
-                                     (Just "No such interface")
-                                     [])
-            Just m -> case runMethod m args of
-                Nothing -> Left (MsgError "org.freedesktop.DBus.Error.InvalidArgs"
-                                          (Just "Argument type missmatch")
-                                          [])
-                Just ret -> Right ret
+    Just o -> case interface of
+        "org.freedesktop.DBus.Properties" -> handleProperty o path member args
+        _ -> case find ((== interface) . interfaceName) $ objectInterfaces o of
+            Nothing -> Left noSuchInterface
+            Just i -> case find ((== member) . methodName) $ interfaceMethods i of
+                Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
+                                         (Just "No such member")
+                                         [])
+                Just m -> case runMethod m args of
+                    Nothing ->
+                        Left (MsgError "org.freedesktop.DBus.Error.InvalidArgs"
+                              (Just "Argument type missmatch")
+                              [])
+                    Just ret -> Right ret

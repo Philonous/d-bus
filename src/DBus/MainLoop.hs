@@ -55,10 +55,10 @@ import           DBus.Wire
 
 handleMessage handleCall handleSignals answerSlots (header, body) =
         case messageType header of
-            MethodCall -> handleCall header body
-            MethodReturn -> handleReturn True
-            Error -> handleError
-            Signal -> handleSignals header body
+            MessageTypeMethodCall -> handleCall header body
+            MessageTypeMethodReturn -> handleReturn True
+            MessageTypeError -> handleError
+            MessageTypeSignal -> handleSignals header body
             _ -> return ()
   where
     handleReturn nonError = case hFReplySerial $ fields header of
@@ -89,19 +89,26 @@ objectRoot o conn header args | fs <- fields header
     let errToErrMessage s e = errorMessage s (Just ser) sender (errorName e)
                                              (errorText e) (errorBody e)
         mkReturnMethod s args = methodReturn s ser sender args
-    serial <- atomically $ dBusCreateSerial conn
     ret <- case callAtPath o path iface member args of
         Left e -> return $ Left e
         Right f -> do
-            ret <- withAsync (Ex.catch (Right <$> f) (return . Left)) waitCatch
+            ret <- withAsync (Ex.catch (Right <$> runSignalT f)
+                              (return . Left)) waitCatch
             case ret of
                 Left e -> return $ Left
                               (MsgError "org.freedesktop.DBus.Error.Failed"
                                         (Just $ "Method threw exception: "
                                          `Text.append` Text.pack (show e)) [])
-                Right r -> return $  r
-    let bs = either (errToErrMessage serial) (mkReturnMethod serial) ret
-    sendBS conn bs
+                Right r -> return $ r
+    serial <- atomically $ dBusCreateSerial conn
+    case ret of
+        Left err -> sendBS conn $ errToErrMessage serial err
+        Right (r, sigs) -> do
+            sendBS conn $ mkReturnMethod serial r
+            forM_ sigs $ \sig -> do
+                sid <- atomically $ dBusCreateSerial conn
+                sendBS conn $ mkSignal sid [] sig
+
   where notUnit (DBV DBVUnit) = False
         notUnit _ = True
 objectRoot _ _ _ _ = return ()

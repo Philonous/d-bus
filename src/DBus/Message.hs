@@ -38,28 +38,28 @@ import           DBus.TH
 import           DBus.Types
 import           DBus.Wire
 
-data MessageType = Invalid
-                 | MethodCall
-                 | MethodReturn
-                 | Error
-                 | Signal
-                 | Other Word8
+data MessageType = MessageTypeInvalid
+                 | MessageTypeMethodCall
+                 | MessageTypeMethodReturn
+                 | MessageTypeError
+                 | MessageTypeSignal
+                 | MessageTypeOther Word8
                  deriving (Eq, Show)
 
 instance Representable MessageType where
     type RepType MessageType = 'DBusSimpleType TypeByte
-    toRep Invalid      = DBVByte $ 0
-    toRep MethodCall   = DBVByte $ 1
-    toRep MethodReturn = DBVByte $ 2
-    toRep Error        = DBVByte $ 3
-    toRep Signal       = DBVByte $ 4
-    toRep (Other i)    = DBVByte $ fromIntegral i
-    fromRep (DBVByte 0) = Just $ Invalid
-    fromRep (DBVByte 1) = Just $ MethodCall
-    fromRep (DBVByte 2) = Just $ MethodReturn
-    fromRep (DBVByte 3) = Just $ Error
-    fromRep (DBVByte 4) = Just $ Signal
-    fromRep (DBVByte i) = Just $ Other $ fromIntegral i
+    toRep MessageTypeInvalid      = DBVByte $ 0
+    toRep MessageTypeMethodCall   = DBVByte $ 1
+    toRep MessageTypeMethodReturn = DBVByte $ 2
+    toRep MessageTypeError        = DBVByte $ 3
+    toRep MessageTypeSignal       = DBVByte $ 4
+    toRep (MessageTypeOther i)    = DBVByte $ fromIntegral i
+    fromRep (DBVByte 0) = Just $ MessageTypeInvalid
+    fromRep (DBVByte 1) = Just $ MessageTypeMethodCall
+    fromRep (DBVByte 2) = Just $ MessageTypeMethodReturn
+    fromRep (DBVByte 3) = Just $ MessageTypeError
+    fromRep (DBVByte 4) = Just $ MessageTypeSignal
+    fromRep (DBVByte i) = Just $ MessageTypeOther $ fromIntegral i
 
 data Flag = NoReplyExpected
           | NoAutoStart
@@ -183,7 +183,7 @@ methodCall sid dest path interface member args flags =
                                    }
         header = MessageHeader
                  { endianessFlag = Little
-                 , messageType = MethodCall
+                 , messageType = MessageTypeMethodCall
                  , flags = Flags flags
                  , version = 1
                  , messageLength = 0
@@ -191,6 +191,24 @@ methodCall sid dest path interface member args flags =
                  , fields = hFields
                  }
     in serializeMessage header args
+
+mkSignal sid flags sig =
+    let hFields = emptyHeaderFields { hFPath = Just $ signalPath sig
+                                    , hFInterface = Just $ signalInterface sig
+                                    , hFMember = Just $ signalMember sig
+                                    }
+        header = MessageHeader
+                 { endianessFlag = Little
+                 , messageType = MessageTypeSignal
+                 , flags = Flags flags
+                 , version = 1
+                 , messageLength = 0
+                 , serial = sid
+                 , fields = hFields
+                 }
+    in serializeMessage header (signalBody sig)
+
+
 
 methodReturn :: Word32
              -> Word32
@@ -203,7 +221,7 @@ methodReturn sid rsid dest args =
                                    }
         header = MessageHeader
                  { endianessFlag = Little
-                 , messageType = MethodReturn
+                 , messageType = MessageTypeMethodReturn
                  , flags = Flags []
                  , version = 1
                  , messageLength = 0
@@ -226,7 +244,7 @@ errorMessage sid rsid dest name text args =
                                    }
         header = MessageHeader
                  { endianessFlag = Little
-                 , messageType = Error
+                 , messageType = MessageTypeError
                  , flags = Flags []
                  , version = 1
                  , messageLength = 0
