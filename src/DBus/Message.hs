@@ -37,6 +37,7 @@ import           DBus.Representable
 import           DBus.TH
 import           DBus.Types
 import           DBus.Wire
+import           DBus.Object
 
 data MessageType = MessageTypeInvalid
                  | MessageTypeMethodCall
@@ -294,9 +295,10 @@ sendBS conn bs = do
     atomically $ putTMVar (dBusWriteLock conn) write
 
 
--- | Asychronously call a method. Returns an STM action that waits for the
--- returned value.
-callMethod :: Text.Text -- ^ Entity to send the message to
+-- | Asychronously call a method.
+--
+-- This is the "raw" version of 'callMethod'. It doesn't do argument conversion.
+callMethod' :: Text.Text -- ^ Entity to send the message to
            -> ObjectPath -- ^ Object
            -> Text.Text -- ^ Interface
            -> Text.Text -- ^ Member (method) name
@@ -304,7 +306,7 @@ callMethod :: Text.Text -- ^ Entity to send the message to
            -> [Flag] -- ^ Method call flags
            -> DBusConnection -- ^ Connection to send the call over
            -> IO (STM (Either [SomeDBusValue] [SomeDBusValue] ))
-callMethod dest path interface member args flags conn = do
+callMethod' dest path interface member args flags conn = do
     serial <- atomically $ dBusCreateSerial conn
     ref <- newEmptyTMVarIO
     rSlot <- newTVarIO ()
@@ -325,11 +327,17 @@ callMethod dest path interface member args flags conn = do
 getAnswer :: IO (STM b) -> IO b
 getAnswer = (atomically =<<)
 
--- | Synchronously call a method. Returned errors are thrown as 'MethodError's.
+-- | Synchronously call a method.
+--
+-- This is the "cooked" version of callMethod\''. It automatically converts
+-- arguments and returns values and throws conversion errors as exceptions
+--
 -- If the returned value's type doesn't match the expected type a
 -- 'MethodSignatureMissmatch' is thrown.
 --
--- This function handles multiple return values in the following way:
+-- You can pass in and extract multiple arguments and return values with types
+-- that are represented by DBus Structs (e.g. tuples). More specifically,
+-- multiple arguments/return values are handled in the following way:
 --
 -- * If the method returns multiple values and the RepType of the expected
 -- return value is a struct it tries to match up the arguments with the struct
@@ -345,24 +353,29 @@ getAnswer = (atomically =<<)
 -- This means that if the RepType of the expected return value is a struct it
 -- might be matched in two ways: Either by the method returning multiple values
 -- or the method returning a single struct. At the moment there is no way to
--- force this function to only match either
-callMethod' :: (SingI (RepType a), Representable a, MonadThrow m, MonadIO m) =>
+-- exclude either
+callMethod :: ( Representable args
+              , SingI (RepType args)
+              , SingI (FlattenRepType (RepType args))
+              , Representable ret
+              , SingI (RepType ret)
+              ) =>
                Text.Text -- ^ Entity to send the message to
             -> ObjectPath -- ^ Object
             -> Text.Text -- ^ Interface
             -> Text.Text -- ^ Member (method) to call
-            -> [SomeDBusValue] -- ^ Arguments
+            -> args -- ^ Arguments
             -> [Flag] -- ^ Method call flags
             -> DBusConnection -- ^ Connection to send the call over
-            -> m a
-callMethod' dest path interface member args flags conn = do
-    ret <- liftIO . getAnswer
-               $ callMethod dest path interface member args flags conn
-    case ret of
-        Left e -> throwM $ MethodErrorMessage e
+            -> IO (Either MethodError ret)
+callMethod dest path interface member args flags conn = do
+    let args' = argsToValues . SDBA $ flattenRep args
+    ret <- getAnswer $ callMethod' dest path interface member args' flags conn
+    return $ case ret of
+        Left e -> Left $ MethodErrorMessage e
         Right rvs -> case listToSomeArguments rvs of
             sr@(SDBA (r :: DBusArguments ats)) ->
-                maybe (throwM $ MethodSignatureMissmatch rvs) return
+                maybe (Left $ MethodSignatureMissmatch rvs) Right
                 $ fix $ \(_ :: Maybe ret) ->
                 case sing :: Sing (RepType ret) of
                     STypeStruct ts -> case (r, sing :: Sing ats) of

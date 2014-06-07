@@ -15,6 +15,8 @@
 module DBus.Object where
 
 import           Control.Applicative ((<$>))
+import           Control.Concurrent.STM
+import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Trans
 import           Data.List (intercalate, find)
@@ -100,15 +102,39 @@ instance (RepMethod b, Representable a, SingI (RepType a) )
         Nothing -> error "marshalling error" -- TODO
         Just x -> repMethod $ f x
 
--- type family ArgumentRep a where
---     ArgumentRep () = '[]
---     ArgumentRep (DBusStruct ts) = ts
---     ArgumentRep a = '[RepType a]
+-- | Create a property from a getter and a setter. It will emit a
+-- PropertyChanged signal when the setter is called (not only then). To change
+-- this behaviour modify the propertyEmitsChangedSignal field
+mkProperty :: (Representable a, SingI (RepType a)) =>
+              Text
+           -> Maybe (IO a)
+           -> Maybe (a -> IO Bool)
+           -> Property
+mkProperty name get set =
+    let pw = PropertyWrapper { setProperty = doSet <$> set
+                             , getProperty = lift . fmap toRep <$> get
+                             }
+        in Property { propertyName = name
+                    , propertyAccessors = pw
+                    , propertyEmitsChangedSignal = PECSTrue
+                    }
+  where
+    doSet f v = lift $ f =<< fromRepHelper v
+    fromRepHelper x = case fromRep x of
+        Nothing -> Ex.throwIO argTypeMismatch
+        Just r -> return r
 
--- class IsDBusArguments a where
---     toArguments :: a -> DBusArguments (ArgumentRep a)
---     fromArguments :: DBusArguments (ArgumentRep a) -> a
-
+-- | Make a property out of a TVar. The property is considered changed on every
+-- get, no matter if the updated value is actually different from the old one
+mkTVarProperty :: (Representable a, SingI (RepType a)) =>
+                  Text
+               -> TVar a
+               -> Property
+mkTVarProperty name tv = mkProperty
+                          name
+                           (Just (atomically $ readTVar tv))
+                           (Just (\v -> atomically (writeTVar tv v)
+                                        >> return True))
 
 runMethodW :: SingI at =>
                MethodWrapper at rt

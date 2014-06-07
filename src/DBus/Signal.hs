@@ -83,11 +83,10 @@ addMatch :: (MonadIO m, MonadThrow m ) =>
             MatchRule
          -> DBusConnection
          -> m ()
-addMatch rule = messageBusMethod "AddMatch" [DBV . DBVString $ renderRule rule]
+addMatch rule = messageBusMethod "AddMatch" (renderRule rule)
 
 removeMatch :: (MonadIO m, MonadThrow m ) =>
             MatchRule
          -> DBusConnection
          -> m ()
-removeMatch rule = messageBusMethod "RemoveMatch"
-                      [DBV . DBVString $ renderRule rule]
+removeMatch rule = messageBusMethod "RemoveMatch" (renderRule rule)

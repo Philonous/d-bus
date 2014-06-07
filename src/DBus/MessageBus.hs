@@ -3,42 +3,52 @@
 {-# LANGUAGE OverloadedStrings #-}
 module DBus.MessageBus where
 
+import qualified Control.Exception as Ex
+import           Control.Monad.Catch (MonadThrow, throwM)
+import           Control.Monad.IO.Class
 import           Control.Monad.Trans (MonadIO)
 import           DBus.Message
 import           DBus.Object
 import           DBus.Types
-import           Control.Monad.Catch (MonadThrow, throwM)
 import           Data.Default
 import           Data.Singletons
 import qualified Data.Text as Text
 import           Data.Word
 
-import DBus.Error
+import           DBus.Error
 
 messageBusMethod :: ( MonadIO m
                     , MonadThrow m
-                    , Representable a
-                    , SingI (RepType a)
+                    , Representable args
+                    , SingI (RepType args)
+                    , SingI (FlattenRepType (RepType args))
+                    , Representable ret
+                    , SingI (RepType ret)
                     ) =>
                     Text.Text
-                 -> [SomeDBusValue]
+                 -> args
                  -> DBusConnection
-                 -> m a
-messageBusMethod name args = callMethod' "org.freedesktop.DBus"
-                                 (objectPath "/org/freedesktop/DBus")
-                                 "org.freedesktop.DBus" name args []
+                 -> m ret
+messageBusMethod name args con = do
+    res <- liftIO $ callMethod "org.freedesktop.DBus"
+             (objectPath "/org/freedesktop/DBus")
+             "org.freedesktop.DBus" name args [] con
+    case res of
+        Left e -> liftIO $ Ex.throwIO e
+        Right r -> return r
 
 hello :: (MonadIO m, MonadThrow m) => DBusConnection -> m Text.Text
-hello = messageBusMethod "Hello" []
+hello = messageBusMethod "Hello" ()
 
 data RequestNameFlag = RequestNameFlag { allowReplacement
-                                      , replaceExisting
-                                      , doNotQueue :: Bool
-                                      }
+                                       , replaceExisting
+                                       , doNotQueue :: Bool
+                                       }
 
 instance Default RequestNameFlag where
     def = RequestNameFlag False False False
 
+fromRequestNameFlags :: RequestNameFlag -> Word32
 fromRequestNameFlags flags = sum [ fromFlag allowReplacement 0x01
                                  , fromFlag replaceExisting  0x02
                                  , fromFlag doNotQueue       0x04
@@ -57,9 +67,7 @@ requestName :: (MonadIO m, MonadThrow m) =>
             -> DBusConnection
             -> m RequestNameReply
 requestName name flags con = do
-    reply <- messageBusMethod "RequestName" [ DBV $ DBVString name
-                                            , DBV . DBVUInt32 $
-                                               fromRequestNameFlags flags]
+    reply <- messageBusMethod "RequestName" (name, fromRequestNameFlags flags)
                                             con
     case reply :: Word32 of
         1 -> return PrimaryOwner
@@ -77,7 +85,7 @@ releaseName :: (MonadIO m, MonadThrow m) =>
             -> DBusConnection
             -> m ReleaseNameReply
 releaseName name con = do
-        reply <- messageBusMethod "RequestName" [DBV $ DBVString name] con
+        reply <- messageBusMethod "RequestName" name con
         case reply :: Word32 of
             1 -> return Released
             2 -> return NonExistent
@@ -88,19 +96,19 @@ listQueuedOwners :: (MonadIO m, MonadThrow m) =>
                     Text.Text
                  -> DBusConnection
                  -> m [Text.Text]
-listQueuedOwners name = messageBusMethod "ListQueuedOwners" [DBV $ DBVString name]
+listQueuedOwners name = messageBusMethod "ListQueuedOwners" name
 
 
 listNames :: (MonadIO m, MonadThrow m) => DBusConnection -> m [Text.Text]
-listNames = messageBusMethod "ListNames" []
+listNames = messageBusMethod "ListNames" ()
 
 listActivatableNames :: (MonadIO m, MonadThrow m) =>
                         DBusConnection
                      -> m [Text.Text]
-listActivatableNames = messageBusMethod "ListActivatableNames" []
+listActivatableNames = messageBusMethod "ListActivatableNames" ()
 
 nameHasOwner :: (MonadIO m, MonadThrow m) => Text.Text -> DBusConnection -> m Bool
-nameHasOwner name = messageBusMethod "NameHasOwner" [DBV $ toRep name]
+nameHasOwner name = messageBusMethod "NameHasOwner" name
 
 data StartServiceResult = StartServiceSuccess
                         | StartServiceAlreadyRunning
@@ -111,9 +119,7 @@ startServiceByName :: (MonadIO m, MonadThrow m) =>
                    -> DBusConnection
                    -> m StartServiceResult
 startServiceByName name con = do
-    res <- messageBusMethod "StartServiceByName"
-                            [DBV $ toRep name, DBV $ DBVUInt32 0]
-                            con
+    res <- messageBusMethod "StartServiceByName" (name, 0 :: Word32) con
     return $ case (res :: Word32) of
         1 -> StartServiceSuccess
         2 -> StartServiceAlreadyRunning
@@ -122,23 +128,21 @@ getNameOwner :: (MonadIO m, MonadThrow m) =>
                 Text.Text
              -> DBusConnection
              -> m Text.Text
-getNameOwner txt = messageBusMethod "GetNameOwner" [DBV $ DBVString txt]
+getNameOwner txt = messageBusMethod "GetNameOwner" txt
 
 getConnectionUnixUser :: (MonadIO m, MonadThrow m) =>
                 Text.Text
              -> DBusConnection
              -> m Word32
-getConnectionUnixUser txt = messageBusMethod "GetConnectionUnixUser"
-                                             [DBV $ DBVString txt]
+getConnectionUnixUser txt = messageBusMethod "GetConnectionUnixUser" txt
 
 getConnectionProcessID :: (MonadIO m, MonadThrow m) =>
                 Text.Text
              -> DBusConnection
              -> m Word32
-getConnectionProcessID txt = messageBusMethod "GetConnectionUnixProcessID"
-                                              [DBV $ DBVString txt]
+getConnectionProcessID txt = messageBusMethod "GetConnectionUnixProcessID" txt
 
 getID :: (MonadIO m, MonadThrow m) =>
          DBusConnection
       -> m Text.Text
-getID = messageBusMethod "GetId" []
+getID = messageBusMethod "GetId" ()

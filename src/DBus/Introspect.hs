@@ -223,7 +223,7 @@ propertyAccess (Property{propertyAccessors = PropertyWrapper mbSet mbGet})
     (Just{}, Just{}) -> ReadWrite
     (Nothing, Just{}) -> Read
     (Just{}, Nothing) -> Write
-    (Nothing, Nothing) -> error "iPropertyAccess: Both getter and setter are nothing"
+    (Nothing, Nothing) -> error "iPropertyAccess: Both getter and setter are Nothing"
 
 
 introspectProperty p = IProperty { iPropertyName = propertyName p
