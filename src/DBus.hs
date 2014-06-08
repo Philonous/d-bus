@@ -9,6 +9,7 @@ module DBus
     , waitFor
 -- * Message handling
     , objectRoot
+    , ignore
 -- * Signals
     , MatchRule(..)
     , matchAll
@@ -51,6 +52,12 @@ module DBus
     , callMethod
     , callMethod'
     , MsgError(..)
+-- * Properties
+    , Property (..)
+    , PropertyWrapper(..)
+    , PropertyEmitsChangedSignal(..)
+    , mkProperty
+    , mkTVarProperty
 -- * Introspection
     , addIntrospectable
 -- * Message Bus
@@ -68,16 +75,19 @@ module DBus
     , getConnectionUnixUser
     , getConnectionProcessID
     , getID
+-- * Re-exports
+    , def
     ) where
 
-import           DBus.Introspect
-import           DBus.MainLoop
-import           DBus.MessageBus
-import           DBus.Object
-import           DBus.Types
-import           DBus.Signal
-import           DBus.TH
-import           DBus.Message
+import DBus.Introspect
+import DBus.MainLoop
+import DBus.Message
+import DBus.MessageBus
+import DBus.Object
+import DBus.Signal
+import DBus.TH
+import DBus.Types
+import Data.Default (def)
 
 -- | Ignore all incoming messages/signals
 ignore _ _ _ = return ()
