@@ -45,7 +45,8 @@ module DBus
 -- * Methods
     , Method(..)
     , MethodWrapper(..)
-    , MethodDescription(..)
+    , ArgumentDescription(..)
+    , ResultDescription(..)
     , repMethod
     , callMethod
     , callMethod'

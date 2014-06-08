@@ -177,12 +177,12 @@ type family ArgsOf x :: Parity where
 infixr 0 :>
 data ResultDescription parity where
     (:>) :: Text.Text -> ResultDescription n -> ResultDescription (Arg n)
-    ResultNil :: ResultDescription 'Null
+    ResultDone :: ResultDescription 'Null
 
 infixr 0 :->
-data MethodDescription as rs where
-    (:->) :: Text.Text -> MethodDescription n t -> MethodDescription (Arg n) t
-    Result :: ResultDescription ts -> MethodDescription 'Null ts
+data ArgumentDescription parity where
+    (:->) :: Text.Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
+    Result :: ArgumentDescription 'Null
 
 
 data DBusArguments :: [DBusType] -> * where
@@ -477,7 +477,8 @@ data Method where
     Method :: (SingI avs, SingI ts) =>
               MethodWrapper avs ts
            -> Text.Text
-           -> MethodDescription (ArgParity avs) (ArgParity ts)
+           -> ArgumentDescription (ArgParity avs)
+           -> ResultDescription   (ArgParity ts)
            -> Method
 
 data PropertyEmitsChangedSignal = PECSTrue

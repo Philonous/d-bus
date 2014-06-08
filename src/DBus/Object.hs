@@ -172,25 +172,28 @@ methodWSignature (_ :: MethodWrapper at rt) =
 
 
 runMethod :: Method -> [SomeDBusValue] -> Maybe (SignalT IO SomeDBusArguments)
-runMethod (Method m _ _) args = liftM SDBA <$> runMethodW m args
+runMethod (Method m _ _ _) args = liftM SDBA <$> runMethodW m args
 
 methodSignature :: Method -> ([DBusType], [DBusType])
-methodSignature (Method m _ _) = methodWSignature m
+methodSignature (Method m _ _ _) = methodWSignature m
 
 methodName :: Method -> Text.Text
-methodName (Method _ n _) = n
+methodName (Method _ n _ _) = n
 
-argDescriptions :: MethodDescription ts rs -> ([Text.Text], [Text.Text])
-argDescriptions (t :-> ts) = let (ts', r) = argDescriptions ts in (t : ts', r)
-argDescriptions (Result rs) = ([], dbusArgsToList rs)
-  where
-    dbusArgsToList :: ResultDescription t -> [Text.Text]
-    dbusArgsToList ResultNil = []
-    dbusArgsToList (t :> ts) = t : dbusArgsToList ts
+argDescToList :: ArgumentDescription ts
+                -> [Text.Text]
+argDescToList (t :-> ts) = t :  argDescToList ts
+argDescToList Result = []
+
+resultDescToList :: ResultDescription t -> [Text.Text]
+resultDescToList ResultDone = []
+resultDescToList (t :> ts) = t : resultDescToList ts
+
+argDescriptions args ress = (argDescToList args, resultDescToList ress)
 
 instance Show Method where
-    show m@(Method _ n desc) =
-        let (args, res) = argDescriptions desc
+    show m@(Method _ n argDs resDs) =
+        let (args, res) = argDescriptions argDs resDs
             (argst, rest) = methodSignature m
             components = zipWith (\name tp -> (Text.unpack name
                                                ++ ":"

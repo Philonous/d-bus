@@ -199,9 +199,9 @@ introspectMethods :: [Method] -> [IMethod]
 introspectMethods = map introspectMethod
   where
     introspectMethod m = IMethod (methodName m) (toArgs m) []
-    toArgs m@(Method _ _ ds) =
+    toArgs m@(Method _ _ argDs resDs) =
         let (args, res) = methodSignature m
-            (ts, rs) = argDescriptions ds
+            (ts, rs) = argDescriptions argDs resDs
         in zipWith (\n t -> IArgument n t (Just In)) ts args
            ++ zipWith ((\r t -> IArgument r t (Just Out))) rs res
 
@@ -257,7 +257,8 @@ introspect object = return $ Text.decodeUtf8 . nodeToXml $ introspectObject obje
 introspectMethod :: Object -> Method
 introspectMethod object = Method (repMethod $ introspect object)
                                   "Introspect"
-                                  (Result ("xml_data" :> ResultNil))
+                                  Result
+                                  ("xml_data" :> ResultDone)
 
 introspectable :: Object -> Interface
 introspectable o = Interface{ interfaceName = "org.freedesktop.DBus.Introspectable"
