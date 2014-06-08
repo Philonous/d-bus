@@ -29,7 +29,7 @@ import           Data.Singletons.TH
 import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as Text
-
+import           Unsafe.Coerce (unsafeCoerce)
 
 import           DBus.Types
 import           DBus.Representable
@@ -66,15 +66,23 @@ type family FlattenRepType r where
     FlattenRepType (TypeStruct ts) = ts
     FlattenRepType t = '[t]
 
-flattenRep :: ( Representable a
-              , SingI (RepType a)
-              , SingI (FlattenRepType (RepType a))
-              ) =>
+-- TODO: Figure out how to convice GHC that the flattenRepType function and the
+-- FlattenRepType type function coincide
+flattenRepS :: Sing a -> Sing (FlattenRepType a)
+flattenRepS s = case flattenRepS' s of
+    SomeSing s' -> unsafeCoerce s'
+  where
+    flattenRepS' STypeUnit = SomeSing SNil
+    flattenRepS' (STypeStruct ts) = SomeSing ts
+    flattenRepS' t = SomeSing (SCons t SNil)
+
+flattenRep :: ( Representable a ) =>
               a
            -> DBusArguments (FlattenRepType (RepType a))
 flattenRep (x :: t) =
     let rts = sing :: Sing (RepType t)
-        frts = sing :: Sing (FlattenRepType (RepType t))
+        frts :: Sing (FlattenRepType (RepType t))
+        frts = flattenRepS rts
     in case (rts, frts) of
         (STypeUnit, SNil) -> ArgsNil
         (STypeStruct ts, ts') -> case toRep x of DBVStruct str -> structToArgs str
@@ -82,19 +90,22 @@ flattenRep (x :: t) =
             Proved Refl -> ArgsCons (toRep x) ArgsNil
             Disproved _ -> error "flattenRep: this shouldn't happen"
 
-instance (Representable t, SingI (RepType t), SingI (FlattenRepType (RepType t)))
-         => RepMethod (IO t) where
+instance (Representable t) => RepMethod (IO t) where
     type RepMethodArgs (IO t) = '[]
     type RepMethodValue (IO t) = FlattenRepType (RepType t)
-    repMethod f = MReturn $ flattenRep `liftM` lift f
+    repMethod (f :: IO t)
+        = let sng = flattenRepS (sing :: Sing (RepType t))
+          in withSingI sng $ MReturn $ flattenRep . toRep <$> lift f
 
-instance (Representable t, SingI (RepType t), SingI (FlattenRepType (RepType t)))
-         => RepMethod (SignalT IO t) where
+instance (Representable t) => RepMethod (SignalT IO t) where
     type RepMethodArgs (SignalT IO t) = '[]
     type RepMethodValue (SignalT IO t) = FlattenRepType (RepType t)
-    repMethod f = MReturn $ flattenRep `liftM` f
+    repMethod (f :: SignalT IO t)
+        = let sng = flattenRepS (sing :: Sing (RepType t))
+          in withSingI sng $ MReturn $ flattenRep . toRep <$> f
 
-instance (RepMethod b, Representable a, SingI (RepType a) )
+
+instance (RepMethod b, Representable a)
          => RepMethod (a -> b) where
     type RepMethodArgs (a -> b) = (RepType a ': RepMethodArgs b)
     type RepMethodValue (a -> b) = RepMethodValue b
@@ -105,7 +116,7 @@ instance (RepMethod b, Representable a, SingI (RepType a) )
 -- | Create a property from a getter and a setter. It will emit a
 -- PropertyChanged signal when the setter is called (not only then). To change
 -- this behaviour modify the propertyEmitsChangedSignal field
-mkProperty :: (Representable a, SingI (RepType a)) =>
+mkProperty :: Representable a =>
               Text
            -> Maybe (IO a)
            -> Maybe (a -> IO Bool)
@@ -126,7 +137,7 @@ mkProperty name get set =
 
 -- | Make a property out of a TVar. The property is considered changed on every
 -- get, no matter if the updated value is actually different from the old one
-mkTVarProperty :: (Representable a, SingI (RepType a)) =>
+mkTVarProperty :: Representable a =>
                   Text
                -> TVar a
                -> Property

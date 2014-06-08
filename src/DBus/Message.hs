@@ -355,10 +355,7 @@ getAnswer = (atomically =<<)
 -- or the method returning a single struct. At the moment there is no way to
 -- exclude either
 callMethod :: ( Representable args
-              , SingI (RepType args)
-              , SingI (FlattenRepType (RepType args))
               , Representable ret
-              , SingI (RepType ret)
               ) =>
                Text.Text -- ^ Entity to send the message to
             -> ObjectPath -- ^ Object
@@ -368,8 +365,10 @@ callMethod :: ( Representable args
             -> [Flag] -- ^ Method call flags
             -> DBusConnection -- ^ Connection to send the call over
             -> IO (Either MethodError ret)
-callMethod dest path interface member args flags conn = do
-    let args' = argsToValues . SDBA $ flattenRep args
+callMethod dest path interface member (arg :: args) flags conn = do
+    let sng = sing :: Sing (RepType args)
+        flsng = flattenRepS sng
+        args' = withSingI flsng $ argsToValues $ SDBA (flattenRep arg)
     ret <- getAnswer $ callMethod' dest path interface member args' flags conn
     return $ case ret of
         Left e -> Left $ MethodErrorMessage e

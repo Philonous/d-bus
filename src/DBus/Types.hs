@@ -86,6 +86,7 @@ isRoot _ = False
 isEmpty (ObjectPath False p) = null p
 isEmpty _ = False
 
+-- | Types that are not composite. These can be the keys of a Dict
 data DBusSimpleType
     = TypeByte
     | TypeBoolean
@@ -146,7 +147,6 @@ data Parity = Null
 genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
 singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]
 singDecideInstances [''DBusSimpleType, ''DBusType]
-
 
 -- | A Transformer for (IO) actions that might want to send a signal.
 newtype SignalT m a = SignalT { unSignal :: WriterT [Signal] m a}
@@ -289,8 +289,8 @@ data DBusValue :: DBusType -> * where
                                    -> DBusValue (TypeDict k v)
     -- TODO: Remove
 
-    -- Unit isn't an actual DBus type and is included only for use with methods
-    -- that don't return a value
+    -- | Unit isn't an actual DBus type and is included only for use with methods
+    -- that don't return a value.
     DBVUnit       :: DBusValue TypeUnit
 
 
@@ -401,10 +401,62 @@ instance SingI t => Show (DBusValue t) where
 typeOf :: SingI t => DBusValue t -> DBusType
 typeOf (_ :: DBusValue a) = fromSing (sing :: SDBusType a)
 
-class Representable a where
+-- | Class of types that can be represented in the D-Bus type system.
+--
+-- The toRep and fromRep functions form a Prism and should follow the "obvious"
+-- laws:
+--
+-- * @fromRep (toRep x) == Just x@
+--
+-- * @fmap toRep (fromRep x) =<= Just x @
+--
+--   (where @x =<= y@ iff @x@ is @Nothing@ or @x == y@)
+--
+-- All 'DBusValues' represent themselves and instances for
+-- the following "canonical" pairs are provided
+--
+-- Haskell type => D-Bus type
+--
+-- * Word/X/ and Int/X/ => UInt/X/ and Int/X/ respectively
+-- (for /X/ in {16, 32, 64})
+--
+-- * 'Bool' => Boolean
+--
+-- * 'Word8' => Byte
+--
+-- * 'Double' => Double
+--
+-- * 'Text' => String
+--
+-- * 'ObjectPath' => ObjectPath
+--
+-- * 'DBusType' => Signature
+--
+-- * [a] => Array of a (for Representable a)
+--
+-- * 'ByteString' => Array of Byte
+--
+-- * Tuples up to length 20 => Structs of equal length where each of the members
+-- is itself Representable
+--
+-- * 'Map' => Dict where the keys can be represented by a 'DBusSimpleType'
+--
+-- An instance for 'String' is impossible because it conflicts with the instance
+-- for lists (use Text instead)
+--
+-- Also note that no Representable instances are provided for 'Int', 'Integer'
+-- and 'Float'.
+--
+-- You can automatically derive an instance for your own Types with
+-- 'makeRepresentable'
+class SingI (RepType a) => Representable a where
+    -- | The 'DBusType' that represents this type
     type RepType a :: DBusType
+    -- | Conversion from Haskell to D-Bus types
     toRep :: a -> DBusValue (RepType a)
+    -- | Conversion from D-Bus to Haskell types.
     fromRep :: DBusValue (RepType a) -> Maybe a
+
 
 ------------------------------------------------
 -- Objects

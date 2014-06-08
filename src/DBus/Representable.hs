@@ -8,6 +8,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 
+{-# OPTIONS_GHC -fcontext-stack=21 #-}
+
 module DBus.Representable where
 
 import           DBus.Types
@@ -85,8 +87,8 @@ instance Representable ObjectPath where
     toRep x = DBVObjectPath x
     fromRep (DBVObjectPath x) = Just x
 
-instance Representable (DBusValue TypeVariant) where
-    type RepType (DBusValue TypeVariant) = TypeVariant
+instance SingI t => Representable (DBusValue t) where
+    type RepType (DBusValue t) = t
     toRep = id
     fromRep = Just
 
@@ -109,27 +111,10 @@ type family FromSimpleType (t :: DBusType) :: DBusSimpleType where
 instance ( Ord k
          , Representable k
          , RepType k ~ 'DBusSimpleType r
+         , SingI r
          , Representable v )
          => Representable (Map.Map k v)  where
     type RepType (Map.Map k v) = TypeDict (FromSimpleType (RepType k)) (RepType v)
     toRep m = DBVDict $ map (\(l,r) -> (toRep l, toRep r)) (Map.toList m)
     fromRep (DBVDict xs) = Map.fromList <$> sequence
                            (map (\(l,r) -> (,) <$> fromRep l <*> fromRep r) xs)
-
-instance ( Representable l
-         , Representable r
-         , SingI (RepType l)
-         , SingI (RepType r))
-         => Representable (Either l r) where
-    type RepType (Either l r) = TypeStruct '[ 'DBusSimpleType TypeBoolean
-                                            , TypeVariant]
-    toRep (Left l) = DBVStruct ( StructCons (DBVBool False) $
-                                 StructSingleton (DBVVariant (toRep l)))
-    toRep (Right r) = DBVStruct ( StructCons (DBVBool True) $
-                                 StructSingleton (DBVVariant (toRep r)))
-    fromRep (DBVStruct ((StructCons (DBVBool False)
-              (StructSingleton r))))
-             = Left <$> (fromRep =<< fromVariant r)
-    fromRep (DBVStruct ((StructCons (DBVBool True)
-              (StructSingleton r))))
-             = Right <$> (fromRep =<< fromVariant r)
