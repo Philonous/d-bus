@@ -1,5 +1,5 @@
 name:                d-bus
-version:             0.0.3
+version:             0.1.0
 synopsis:            Permissively licensed D-Bus client library
 description:         This library uses modern extensions to the Haskell type system
                      (including GADTs, DataKinds and TypeFamilies) and the
@@ -60,19 +60,35 @@ library
   cpp-options:     -DSEND_CREDENTIALS
   }
 
--- test-suite tests
+test-suite unittests
+  type:              exitcode-stdio-1.0
+  hs-source-dirs:    tests
+  main-is:           Main.hs
+  build-depends:     base >= 4 && < 5
+                   , d-bus
+                   , xml-hamlet
+                   , QuickCheck
+                   , text
+                   , tasty
+                   , tasty-th
+                   , tasty-quickcheck
+                   , singletons
+                   , bytestring
+                   , binary
+                   , mtl
+
+test-suite integrationtest
+  type:              exitcode-stdio-1.0
+  hs-source-dirs:    tests
+  main-is:           Runtest.hs
+  build-depends:     base >= 4 && < 5
+                   , d-bus
+                   , text
+
+
+-- test-suite singletons
 --   type:              exitcode-stdio-1.0
---   hs-source-dirs:    tests
---   main-is:           Main.hs
+--   hs-source-dirs:    src
+--   main-is:           Test.hs
 --   build-depends:     base >= 4 && < 5
---                    , dbus-ext
---                    , xml-hamlet
---                    , QuickCheck
---                    , text
---                    , tasty
---                    , tasty-th
---                    , tasty-quickcheck
 --                    , singletons
---                    , bytestring
---                    , binary
---                    , mtl
