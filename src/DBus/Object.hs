@@ -61,28 +61,13 @@ class RepMethod f where
     type RepMethodValue f :: [DBusType]
     repMethod :: f -> MethodWrapper (RepMethodArgs f) (RepMethodValue f)
 
-type family FlattenRepType r where
-    FlattenRepType TypeUnit = '[]
-    FlattenRepType (TypeStruct ts) = ts
-    FlattenRepType t = '[t]
-
--- TODO: Figure out how to convice GHC that the flattenRepType function and the
--- FlattenRepType type function coincide
-flattenRepS :: Sing a -> Sing (FlattenRepType a)
-flattenRepS s = case flattenRepS' s of
-    SomeSing s' -> unsafeCoerce s'
-  where
-    flattenRepS' STypeUnit = SomeSing SNil
-    flattenRepS' (STypeStruct ts) = SomeSing ts
-    flattenRepS' t = SomeSing (SCons t SNil)
-
 flattenRep :: ( Representable a ) =>
               a
            -> DBusArguments (FlattenRepType (RepType a))
 flattenRep (x :: t) =
     let rts = sing :: Sing (RepType t)
         frts :: Sing (FlattenRepType (RepType t))
-        frts = flattenRepS rts
+        frts = sFlattenRepType rts
     in case (rts, frts) of
         (STypeUnit, SNil) -> ArgsNil
         (STypeStruct ts, ts') -> case toRep x of DBVStruct str -> structToArgs str
@@ -94,14 +79,14 @@ instance (Representable t) => RepMethod (IO t) where
     type RepMethodArgs (IO t) = '[]
     type RepMethodValue (IO t) = FlattenRepType (RepType t)
     repMethod (f :: IO t)
-        = let sng = flattenRepS (sing :: Sing (RepType t))
+        = let sng = sFlattenRepType (sing :: Sing (RepType t))
           in withSingI sng $ MReturn $ flattenRep . toRep <$> lift f
 
 instance (Representable t) => RepMethod (SignalT IO t) where
     type RepMethodArgs (SignalT IO t) = '[]
     type RepMethodValue (SignalT IO t) = FlattenRepType (RepType t)
     repMethod (f :: SignalT IO t)
-        = let sng = flattenRepS (sing :: Sing (RepType t))
+        = let sng = sFlattenRepType (sing :: Sing (RepType t))
           in withSingI sng $ MReturn $ flattenRep . toRep <$> f
 
 

@@ -367,7 +367,7 @@ callMethod :: ( Representable args
             -> IO (Either MethodError ret)
 callMethod dest path interface member (arg :: args) flags conn = do
     let sng = sing :: Sing (RepType args)
-        flsng = flattenRepS sng
+        flsng = sFlattenRepType sng
         args' = withSingI flsng $ argsToValues $ SDBA (flattenRep arg)
     ret <- getAnswer $ callMethod' dest path interface member args' flags conn
     return $ case ret of

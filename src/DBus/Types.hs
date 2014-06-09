@@ -13,6 +13,8 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PolyKinds #-}
+
 
 module DBus.Types where
 
@@ -147,6 +149,14 @@ data Parity = Null
 genSingletons [''DBusSimpleType, ''DBusType, ''Parity]
 singEqInstances [''DBusSimpleType, ''DBusType, ''Parity]
 singDecideInstances [''DBusSimpleType, ''DBusType]
+
+
+singletons [d|
+  flattenRepType :: DBusType -> [DBusType]
+  flattenRepType TypeUnit              = []
+  flattenRepType (TypeStruct ts)       = ts
+  flattenRepType (DBusSimpleType t)  = [DBusSimpleType t]
+  |]
 
 -- | A Transformer for (IO) actions that might want to send a signal.
 newtype SignalT m a = SignalT { unSignal :: WriterT [Signal] m a}
