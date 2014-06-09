@@ -334,28 +334,14 @@ instance Eq (DBusValue t) where
     DBVByteArray  x == DBVArray       y = BS.pack (map (\(DBVByte w) -> w) y) == x
     _               ==  _               = False
 
-
--- TODO: Reinstate once https://github.com/goldfirere/singletons/issues/2 is
--- resolved
-
--- fromVariant :: SingI t => DBusValue TypeVariant -> Maybe (DBusValue t)
--- fromVariant (DBVVariant (v :: DBusValue s))
---     = fix $ \(_ :: Maybe (DBusValue t)) ->
---         let ss = (sing :: Sing s)
---             st = (sing :: Sing t)
---         in case (ss %~ st) of
---             Proved Refl -- Bring into scope a proof that s~t
---                 -> Just v
---             Disproved _ -> Nothing
-
 castDBV :: (SingI s, SingI t) => DBusValue s -> Maybe (DBusValue t)
 castDBV (v :: DBusValue s)
     = fix $ \(_ :: Maybe (DBusValue t)) ->
         let ss = (sing :: Sing s)
             st = (sing :: Sing t)
-        in case (ss %:== st) of
-            STrue -> Just (unsafeCoerce v)
-            SFalse -> Nothing
+        in case (ss %~ st) of
+            Proved Refl -> Just v
+            Disproved _ -> Nothing
 
 data SomeDBusValue where
     DBV :: SingI t => DBusValue t -> SomeDBusValue
