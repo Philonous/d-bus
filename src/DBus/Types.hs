@@ -155,7 +155,12 @@ singletons [d|
   flattenRepType :: DBusType -> [DBusType]
   flattenRepType TypeUnit              = []
   flattenRepType (TypeStruct ts)       = ts
-  flattenRepType (DBusSimpleType t)  = [DBusSimpleType t]
+  flattenRepType t@(DBusSimpleType _ )  = [t]
+  flattenRepType t@(TypeArray _)  = [t]
+  flattenRepType t@(TypeDict _ _)  = [t]
+  flattenRepType t@(TypeDictEntry _ _)  = [t]
+  flattenRepType t@(TypeVariant)  = [t]
+
   |]
 
 -- | A Transformer for (IO) actions that might want to send a signal.
