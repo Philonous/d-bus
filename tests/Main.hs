@@ -19,7 +19,7 @@ import           Data.Either
 import           Data.Int
 import           Data.List (intercalate)
 import           Data.Singletons
-import           Data.Singletons.List
+import           Data.Singletons.Prelude.List
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           Data.Word
@@ -135,7 +135,7 @@ genDBV (SDBusSimpleType STypeUInt16)     = DBVUInt16     <$> arbitrary
 genDBV (SDBusSimpleType STypeInt32)      = DBVInt32      <$> arbitrary
 genDBV (SDBusSimpleType STypeUInt32)     = DBVUInt32     <$> arbitrary
 genDBV (SDBusSimpleType STypeInt64)      = DBVInt64      <$> arbitrary
-genDBV (SDBusSimpleType STypeUInt64)     = DBVUint64     <$> arbitrary
+genDBV (SDBusSimpleType STypeUInt64)     = DBVUInt64     <$> arbitrary
 genDBV (SDBusSimpleType STypeDouble)     = DBVDouble     <$> arbitrary
 genDBV (SDBusSimpleType STypeUnixFD)     = DBVUnixFD     <$> arbitrary
 genDBV (SDBusSimpleType STypeString)     = DBVString     <$> genText
@@ -229,7 +229,7 @@ to x = (BS.toLazyByteString $ runDBusPut Big (putDBV x))
 
 
 wire_inverse (x :: DBusValue t) =
-    let from = runGet (runReaderT (getDBV (sing :: Sing t)) Big) (to x)
+    let from = runGet (runReaderT getDBV Big) (to x)
     in  (DBV from, x == from)
 
 prop_wire_inverse (DBV x) = snd $ wire_inverse x
@@ -246,7 +246,7 @@ ppv (x :: DBusValue t) = do
     putStrLn (hexifyBS bs)
     putStrLn (showifyBS bs)
     putStrLn (" ## " ++ show (BSL.length bs))
-    let from = runGet (runReaderT (getDBV (sing :: Sing t)) Big) bs
+    let from = runGet (runReaderT getDBV Big) bs
     print from
     print x
     print $ x == from
@@ -258,10 +258,10 @@ test2 = DBVArray [DBVByte 0 , DBVByte 3, DBVByte 0]
 test3 = DBVVariant (DBVVariant (DBVStruct (StructSingleton (DBVStruct (StructSingleton (DBVUInt16 9))))))
 
 test4 = DBVArray [DBVVariant $ DBVUInt32 7 ]
-test5 = DBVArray [DBVVariant $ DBVUint64 7 ]
+test5 = DBVArray [DBVVariant $ DBVUInt64 7 ]
 
 test6 = DBVArray [DBVStruct (StructSingleton (DBVVariant (DBVUInt32 0)))]
-test7 = DBVArray [DBVStruct (StructSingleton (DBVUint64 (maxBound :: Word64)))]
+test7 = DBVArray [DBVStruct (StructSingleton (DBVUInt64 (maxBound :: Word64)))]
 
 test8o = DBVVariant (DBVVariant (DBVArray [DBVVariant (DBVVariant (DBVInt16 (-1)))]))
 

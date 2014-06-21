@@ -10,17 +10,19 @@ module DBus.Introspect where
 import           Blaze.ByteString.Builder
 import           Control.Applicative ((<$>))
 import           Control.Exception (SomeException)
+import           Control.Monad
 import qualified Data.ByteString as BS
 import           Data.Conduit (($$), ($=))
 import           Data.Conduit.List (consume, sourceList)
-import           Data.Data(Data)
+import           Data.Data (Data)
 import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Monoid (mconcat)
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.Lazy as LText
-import           Data.Typeable(Typeable)
+import           Data.Typeable (Typeable)
 import           Data.XML.Pickle hiding (Result)
 import           Data.XML.Types
 import           Text.XML.Stream.Parse
@@ -31,6 +33,7 @@ import           DBus.Object
 import           DBus.Representable
 import           DBus.Signature
 import           DBus.Types
+import           DBus.Method
 
 data IDirection = In | Out deriving (Eq, Show, Data, Typeable)
 
@@ -171,6 +174,9 @@ xmlToNode xml = case sourceList [xml] $= parseBytesPos def $$ fromEvents of
     Right d -> case unpickle (xpRoot . xpUnliftElems $ xpNode) $ documentRoot d of
         Left e -> Left $ Text.pack (ppUnpickleError e)
         Right r -> Right r
+
+
+
 
 
 pubID :: ExternalID

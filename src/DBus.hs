@@ -84,6 +84,8 @@ import DBus.MainLoop
 import DBus.Message
 import DBus.MessageBus
 import DBus.Object
+import DBus.Property
+import DBus.Method
 import DBus.Signal
 import DBus.TH
 import DBus.Types

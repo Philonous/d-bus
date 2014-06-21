@@ -52,6 +52,7 @@ import           DBus.Object
 import           DBus.Transport
 import           DBus.Types
 import           DBus.Wire
+import           DBus.Signal
 
 handleMessage handleCall handleSignals answerSlots (header, body) =
         case messageType header of
@@ -93,7 +94,8 @@ objectRoot o conn header args | fs <- fields header
         Left e -> return $ Left e
         Right f -> do
             ret <- withAsync (Ex.catch (Right <$> runSignalT f)
-                              (return . Left)) waitCatch
+                                       (return . Left) -- catches MsgError only
+                             ) waitCatch
             case ret of
                 Left e -> return $ Left
                               (MsgError "org.freedesktop.DBus.Error.Failed"
@@ -105,9 +107,7 @@ objectRoot o conn header args | fs <- fields header
         Left err -> sendBS conn $ errToErrMessage serial err
         Right (r, sigs) -> do
             sendBS conn $ mkReturnMethod serial r
-            forM_ sigs $ \sig -> do
-                sid <- atomically $ dBusCreateSerial conn
-                sendBS conn $ mkSignal sid [] sig
+            forM_ sigs $ flip emitSignal conn
 
   where notUnit (DBV DBVUnit) = False
         notUnit _ = True

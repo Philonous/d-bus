@@ -168,7 +168,9 @@ newtype SignalT m a = SignalT { unSignal :: WriterT [Signal] m a}
                       deriving ( Functor
                                , Applicative
                                , Monad
-                               , MonadTrans )
+                               , MonadTrans
+                               , MonadIO
+                               )
 
 data Signal = Signal { signalPath :: ObjectPath
                      , signalInterface :: InterfaceName
@@ -178,11 +180,6 @@ data Signal = Signal { signalPath :: ObjectPath
 
 runSignalT :: SignalT m a -> m (a, [Signal])
 runSignalT (SignalT w) = runWriterT w
-
-signal :: Monad m => Signal -> SignalT m ()
-signal sig = SignalT $ tell [sig]
-
-
 
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
@@ -302,11 +299,9 @@ data DBusValue :: DBusType -> * where
     DBVStruct     :: DBusStruct ts -> DBusValue (TypeStruct ts)
     DBVDict       :: [(DBusValue ('DBusSimpleType k) ,DBusValue v)]
                                    -> DBusValue (TypeDict k v)
-    -- TODO: Remove
-
-    -- | Unit isn't an actual DBus type and is included only for use with methods
+    DBVUnit       :: DBusValue TypeUnit -- How to get rid of this?
+    -- Unit isn't an actual DBus type and is included only for use with methods
     -- that don't return a value.
-    DBVUnit       :: DBusValue TypeUnit
 
 
 instance Eq (DBusValue t) where
@@ -491,12 +486,14 @@ data PropertyWrapper t where
     PropertyWrapper :: forall t. SingI t =>
                        { setProperty :: Maybe (DBusValue t -> SignalT IO Bool)
                          -- | ^ setter for the property. Returns
-                       , getProperty :: Maybe (SignalT IO (DBusValue t))
+                       , getProperty :: Maybe (IO (DBusValue t))
                        } -> PropertyWrapper t
 
 data Property where
     Property :: forall t . (SingI t) =>
-                { propertyName :: Text.Text
+                { propertyPath :: ObjectPath
+                , propertyInterface :: Text.Text
+                , propertyName :: Text.Text
                 , propertyAccessors :: PropertyWrapper t
                 , propertyEmitsChangedSignal :: PropertyEmitsChangedSignal
                 } -> Property

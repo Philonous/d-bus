@@ -2,8 +2,11 @@
 module DBus.Signal where
 
 import           Control.Applicative
-import           Control.Monad.Trans
+import           Control.Concurrent.STM
+import           Control.Monad
 import           Control.Monad.Catch (MonadThrow)
+import           Control.Monad.Trans
+import           Control.Monad.Writer
 import qualified Data.List as List
 import           Data.Maybe
 import           Data.Monoid
@@ -90,3 +93,21 @@ removeMatch :: (MonadIO m, MonadThrow m ) =>
          -> DBusConnection
          -> m ()
 removeMatch rule = messageBusMethod "RemoveMatch" (renderRule rule)
+
+----------------------
+-- Emitting signals --
+----------------------
+
+signal :: Monad m => Signal -> SignalT m ()
+signal sig = SignalT $ tell [sig]
+
+emitSignal :: Signal -> DBusConnection -> IO ()
+emitSignal sig con = do
+    sid <- atomically $ dBusCreateSerial con
+    sendBS con $ mkSignal sid [] sig
+
+execSignalT :: SignalT IO a -> DBusConnection -> IO a
+execSignalT m con = do
+    (x, sigs) <- runSignalT m
+    forM_ sigs $ flip emitSignal con
+    return x

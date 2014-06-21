@@ -17,12 +17,28 @@ import           DBus.TH
 
 import           Control.Applicative ((<$>), (<*>))
 import           Control.Monad
+import qualified Data.ByteString as BS
 import           Data.Int
 import qualified Data.Map as Map
 import           Data.Singletons
+import           Data.Singletons.Decide
+import           Data.Singletons.Prelude.List
 import qualified Data.Text as Text
 import           Data.Word
-import qualified Data.ByteString as BS
+
+flattenRep :: ( Representable a ) =>
+              a
+           -> DBusArguments (FlattenRepType (RepType a))
+flattenRep (x :: t) =
+    let rts = sing :: Sing (RepType t)
+        frts :: Sing (FlattenRepType (RepType t))
+        frts = sFlattenRepType rts
+    in case (rts, frts) of
+        (STypeUnit, SNil) -> ArgsNil
+        (STypeStruct ts, ts') -> case toRep x of DBVStruct str -> structToArgs str
+        (t, SCons t' SNil) -> case t %~ t' of
+            Proved Refl -> ArgsCons (toRep x) ArgsNil
+            Disproved _ -> error "flattenRep: this shouldn't happen"
 
 -- class Representable; see DBus.Types
 forM [2..20] makeRepresentableTuple

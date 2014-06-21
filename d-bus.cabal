@@ -25,15 +25,16 @@ library
                    , DBus.MessageBus
                    , DBus.Object
                    , DBus.Representable
-                   , DBus.Signature
                    , DBus.Signal
+                   , DBus.Signature
                    , DBus.TH
                    , DBus.Transport
                    , DBus.Types
                    , DBus.Wire
-  build-depends:     base >= 4 && <5
-                   , async >= 2.0
+                   , DBus.Scaffold
+  build-depends:     async >= 2.0
                    , attoparsec >= 0.12
+                   , base >= 4 && <5
                    , binary >= 0.7
                    , blaze-builder >= 0.3
                    , bytestring >= 0.10
@@ -42,7 +43,9 @@ library
                    , containers >= 0.5
                    , data-binary-ieee754 >= 0.4
                    , data-default >= 0.5
+                   , exceptions >= 0.6
                    , free >= 4.2
+                   , hslogger >= 1.2
                    , mtl >= 2.1
                    , network >= 2.4
                    , singletons >= 1.0
@@ -53,29 +56,31 @@ library
                    , xml-conduit >= 1.1
                    , xml-picklers >= 0.3
                    , xml-types >= 0.3
-                   , hslogger >= 1.2
-                   , exceptions >= 0.6
   if os(freebsd) {
   c-sources:       src/cbits/credentials.c
   cpp-options:     -DSEND_CREDENTIALS
   }
+  default-extensions: DataKinds
+                    , FlexibleContexts
+                    , OverloadedStrings
 
 test-suite unittests
   type:              exitcode-stdio-1.0
   hs-source-dirs:    tests
   main-is:           Main.hs
-  build-depends:     base >= 4 && < 5
-                   , d-bus
-                   , xml-hamlet
-                   , QuickCheck
-                   , text
-                   , tasty
-                   , tasty-th
-                   , tasty-quickcheck
-                   , singletons
-                   , bytestring
+  build-depends:     QuickCheck
+                   , base >= 4 && < 5
                    , binary
+                   , bytestring
+                   , d-bus
                    , mtl
+                   , singletons
+                   , tasty
+                   , tasty-hunit
+                   , tasty-quickcheck
+                   , tasty-th
+                   , text
+                   , xml-hamlet
 
 test-suite integrationtest
   type:              exitcode-stdio-1.0
