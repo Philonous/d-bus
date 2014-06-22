@@ -90,9 +90,11 @@ propertyChangedSignal prop = do
                          , [name]
                          )]}
 
-propertyChanged :: (MonadIO (SignalT m), Monad m) => Property -> SignalT m ()
+propertyChanged :: MonadIO m => Property -> MethodHandlerT m ()
 propertyChanged prop =
     Foldable.mapM_ signal =<< liftIO (propertyChangedSignal prop)
 
 emitPropertyChanged :: Property -> DBusConnection -> IO ()
-emitPropertyChanged = execSignalT  . propertyChanged
+emitPropertyChanged prop con = do
+    mbSig <- propertyChangedSignal prop
+    Foldable.forM_ mbSig $ flip emitSignal con

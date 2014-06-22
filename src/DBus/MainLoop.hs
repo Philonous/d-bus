@@ -90,24 +90,25 @@ objectRoot o conn header args | fs <- fields header
     let errToErrMessage s e = errorMessage s (Just ser) sender (errorName e)
                                              (errorText e) (errorBody e)
         mkReturnMethod s args = methodReturn s ser sender args
-    ret <- case callAtPath o path iface member args of
-        Left e -> return $ Left e
+    (ret, sigs) <- case callAtPath o path iface member args of
+        Left e -> return (Left e, [])
         Right f -> do
-            ret <- withAsync (Ex.catch (Right <$> runSignalT f)
-                                       (return . Left) -- catches MsgError only
+            ret <- withAsync (Ex.catch (runMethodHandlerT f)
+                                       -- catches MsgError only:
+                                       (\e -> return (Left e, []))
                              ) waitCatch
             case ret of
-                Left e -> return $ Left
+                Left e -> return $ (Left
                               (MsgError "org.freedesktop.DBus.Error.Failed"
                                         (Just $ "Method threw exception: "
                                          `Text.append` Text.pack (show e)) [])
-                Right r -> return $ r
+                                   , [])
+                Right r -> return r
     serial <- atomically $ dBusCreateSerial conn
+    forM_ sigs $ flip emitSignal conn
     case ret of
         Left err -> sendBS conn $ errToErrMessage serial err
-        Right (r, sigs) -> do
-            sendBS conn $ mkReturnMethod serial r
-            forM_ sigs $ flip emitSignal conn
+        Right r -> do sendBS conn $ mkReturnMethod serial r
 
   where notUnit (DBV DBVUnit) = False
         notUnit _ = True

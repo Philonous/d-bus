@@ -24,6 +24,7 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
+import           Control.Monad.Error
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Error
 import           Control.Monad.Writer.Strict
@@ -164,13 +165,21 @@ singletons [d|
   |]
 
 -- | A Transformer for (IO) actions that might want to send a signal.
-newtype SignalT m a = SignalT { unSignal :: WriterT [Signal] m a}
-                      deriving ( Functor
-                               , Applicative
-                               , Monad
-                               , MonadTrans
-                               , MonadIO
-                               )
+newtype MethodHandlerT m a =
+    MHT { unMHT :: ErrorT MsgError (WriterT [Signal] m) a}
+    deriving ( Functor
+             , Applicative
+             , Monad
+             , MonadIO
+             )
+
+-- instance MonadError MethodHandlerT
+
+instance MonadTrans MethodHandlerT where
+    lift = MHT . lift . lift
+
+runMethodHandlerT :: MethodHandlerT m a -> m (Either MsgError a, [Signal])
+runMethodHandlerT (MHT w) = runWriterT $ runErrorT w
 
 data Signal = Signal { signalPath :: ObjectPath
                      , signalInterface :: InterfaceName
@@ -178,12 +187,9 @@ data Signal = Signal { signalPath :: ObjectPath
                      , signalBody :: [SomeDBusValue]
                      }
 
-runSignalT :: SignalT m a -> m (a, [Signal])
-runSignalT (SignalT w) = runWriterT w
-
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
-     ArgsOf (SignalT IO x) = 'Null
+     ArgsOf (MethodHandlerT IO x) = 'Null
      ArgsOf (a -> b) = 'Arg (ArgsOf b)
 
 infixr 0 :>
@@ -461,7 +467,7 @@ class SingI (RepType a) => Representable a where
 
 
 data MethodWrapper av rv where
-    MReturn :: SingI ts => SignalT IO (DBusArguments ts) -> MethodWrapper '[] ts
+    MReturn :: SingI ts => MethodHandlerT IO (DBusArguments ts) -> MethodWrapper '[] ts
     MAsk    :: SingI t => (DBusValue t -> MethodWrapper avs rv )
                        -> MethodWrapper (t ': avs) rv
 
@@ -484,7 +490,7 @@ data PropertyEmitsChangedSignal = PECSTrue
 
 data PropertyWrapper t where
     PropertyWrapper :: forall t. SingI t =>
-                       { setProperty :: Maybe (DBusValue t -> SignalT IO Bool)
+                       { setProperty :: Maybe (DBusValue t -> MethodHandlerT IO Bool)
                          -- | ^ setter for the property. Returns
                        , getProperty :: Maybe (IO (DBusValue t))
                        } -> PropertyWrapper t

@@ -64,7 +64,7 @@ handleProperty :: Object
                -> ObjectPath
                -> MemberName
                -> [SomeDBusValue]
-               -> Either MsgError (SignalT IO SomeDBusArguments)
+               -> Either MsgError (MethodHandlerT IO SomeDBusArguments)
 handleProperty o _ "Get" [mbIface, mbProp]
     | Just ifaceName <- fromRep =<< dbusValue mbIface
     , Just propName <- fromRep =<< dbusValue mbProp
@@ -91,7 +91,7 @@ callAtPath :: Object
            -> Text.Text
            -> Text.Text
            -> [SomeDBusValue]
-           -> Either MsgError (SignalT IO SomeDBusArguments)
+           -> Either MsgError (MethodHandlerT IO SomeDBusArguments)
 callAtPath root path interface member args = case findObject path root of
     Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
                                      (Just . Text.pack $ "No such object "

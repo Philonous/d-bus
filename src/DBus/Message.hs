@@ -37,7 +37,6 @@ import           DBus.Representable
 import           DBus.TH
 import           DBus.Types
 import           DBus.Wire
-import           DBus.Object
 
 data MessageType = MessageTypeInvalid
                  | MessageTypeMethodCall

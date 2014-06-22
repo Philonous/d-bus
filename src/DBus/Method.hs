@@ -31,9 +31,9 @@ instance SingI t => IsMethod (IO (DBusArguments t)) where
     type ResultType (IO (DBusArguments ts)) = ts
     toMethod = MReturn. lift
 
-instance SingI t => IsMethod (SignalT IO (DBusArguments t)) where
-    type ArgTypes (SignalT IO (DBusArguments ts)) = '[]
-    type ResultType (SignalT IO (DBusArguments ts)) = ts
+instance SingI t => IsMethod (MethodHandlerT IO (DBusArguments t)) where
+    type ArgTypes (MethodHandlerT IO (DBusArguments ts)) = '[]
+    type ResultType (MethodHandlerT IO (DBusArguments ts)) = ts
     toMethod = MReturn
 
 instance (IsMethod f, SingI t) => IsMethod (DBusValue t -> f) where
@@ -54,10 +54,10 @@ instance (Representable t) => RepMethod (IO t) where
         = let sng = sFlattenRepType (sing :: Sing (RepType t))
           in withSingI sng $ MReturn $ flattenRep . toRep <$> lift f
 
-instance (Representable t) => RepMethod (SignalT IO t) where
-    type RepMethodArgs (SignalT IO t) = '[]
-    type RepMethodValue (SignalT IO t) = FlattenRepType (RepType t)
-    repMethod (f :: SignalT IO t)
+instance (Representable t) => RepMethod (MethodHandlerT IO t) where
+    type RepMethodArgs (MethodHandlerT IO t) = '[]
+    type RepMethodValue (MethodHandlerT IO t) = FlattenRepType (RepType t)
+    repMethod (f :: MethodHandlerT IO t)
         = let sng = sFlattenRepType (sing :: Sing (RepType t))
           in withSingI sng $ MReturn $ flattenRep . toRep <$> f
 
@@ -73,13 +73,13 @@ instance (RepMethod b, Representable a)
 runMethodW :: SingI at =>
                MethodWrapper at rt
             -> [SomeDBusValue]
-            -> Maybe (SignalT IO (DBusArguments rt))
+            -> Maybe (MethodHandlerT IO (DBusArguments rt))
 runMethodW m args = runMethodW' sing args m
 
 runMethodW' :: Sing at
              -> [SomeDBusValue]
              -> MethodWrapper at rt
-             -> Maybe (SignalT IO (DBusArguments rt))
+             -> Maybe (MethodHandlerT IO (DBusArguments rt))
 runMethodW' SNil         []         (MReturn f) = Just f
 runMethodW' (SCons t ts) (arg:args) (MAsk f)    = (runMethodW' ts args . f )
                                                   =<< dbusValue arg
@@ -94,7 +94,7 @@ methodWSignature (_ :: MethodWrapper at rt) =
     )
 
 
-runMethod :: Method -> [SomeDBusValue] -> Maybe (SignalT IO SomeDBusArguments)
+runMethod :: Method -> [SomeDBusValue] -> Maybe (MethodHandlerT IO SomeDBusArguments)
 runMethod (Method m _ _ _) args = liftM SDBA <$> runMethodW m args
 
 methodSignature :: Method -> ([DBusType], [DBusType])
