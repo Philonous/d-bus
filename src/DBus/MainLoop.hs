@@ -53,6 +53,8 @@ import           DBus.Transport
 import           DBus.Types
 import           DBus.Wire
 import           DBus.Signal
+import           DBus.Property
+import           DBus.Introspect
 
 handleMessage handleCall handleSignals answerSlots (header, body) =
         case messageType header of
@@ -79,7 +81,7 @@ handleMessage handleCall handleSignals answerSlots (header, body) =
 
 -- | Create a message handler that dispatches matches to the methods in a root
 -- object
-objectRoot :: Object -> Handler
+objectRoot :: Objects -> Handler
 objectRoot o conn header args | fs <- fields header
                               , Just path <- hFPath fs
                               , Just iface <- hFInterface fs
@@ -113,7 +115,6 @@ objectRoot o conn header args | fs <- fields header
   where notUnit (DBV DBVUnit) = False
         notUnit _ = True
 objectRoot _ _ _ _ = return ()
-
 
 -- | Check whether connection is alive
 checkAlive :: DBusConnection -> IO Bool
@@ -220,6 +221,11 @@ connectBus transport handleCalls handleSignals = do
         connName <- hello conn
         debugM "DBus" $ "Done"
         return conn{dBusConnectionName = connName}
+
+makeServer :: ConnectionType -> Objects -> IO DBusConnection
+makeServer transport objs = do
+    connectBus transport (objectRoot (addIntrospectable objs))
+                         (\_ _ _ -> return ())
 
 type Handler = DBusConnection -> MessageHeader -> [SomeDBusValue] -> IO ()
 

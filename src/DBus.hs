@@ -3,6 +3,7 @@ module DBus
 -- * Connection management
       ConnectionType(..)
     , connectBus
+    , makeServer
     , MethodCallHandler
     , SignalHandler
     , checkAlive
@@ -54,7 +55,7 @@ module DBus
     , MsgError(..)
 -- * Properties
     , Property (..)
-    , PropertyWrapper(..)
+    , SomeProperty(..)
     , PropertyEmitsChangedSignal(..)
     , mkProperty
     , mkTVarProperty

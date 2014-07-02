@@ -16,7 +16,10 @@ import           Data.Conduit (($$), ($=))
 import           Data.Conduit.List (consume, sourceList)
 import           Data.Data (Data)
 import           Data.Functor.Identity
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Maybe
+import           Data.Monoid
 import           Data.Monoid (mconcat)
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -37,60 +40,56 @@ import           DBus.Method
 
 data IDirection = In | Out deriving (Eq, Show, Data, Typeable)
 
-directionFromText :: Text.Text -> Either Text.Text IDirection
+directionFromText :: Text -> Either Text IDirection
 directionFromText "in" = Right In
 directionFromText "out" = Right Out
 directionFromText d = Left $ "Not a direction: " `Text.append` d
 
-directionToText :: IDirection -> Text.Text
+directionToText :: IDirection -> Text
 directionToText In = "in"
 directionToText Out = "out"
 
-data IPropertyAccess = Read
-                     | Write
-                     | ReadWrite
-                     deriving (Eq, Show, Data, Typeable)
 
-propertyAccessFromText :: Text.Text -> Either Text.Text IPropertyAccess
+propertyAccessFromText :: Text -> Either Text PropertyAccess
 propertyAccessFromText "read" = Right Read
 propertyAccessFromText "write" = Right Write
 propertyAccessFromText "readwrite" = Right ReadWrite
 propertyAccessFromText a = Left $ "Not a property access type: " `Text.append` a
 
-propertyAccessToText :: IPropertyAccess -> Text.Text
+propertyAccessToText :: PropertyAccess -> Text
 propertyAccessToText Read = "read"
 propertyAccessToText Write = "write"
 propertyAccessToText ReadWrite = "readwrite"
 
-data IArgument = IArgument { iArgumentName :: Text.Text
+data IArgument = IArgument { iArgumentName :: Text
                            , iArgumentType :: DBusType
                            , iArgumentDirection :: Maybe IDirection
                            } deriving (Eq, Show, Data, Typeable)
 
-data IMethod = IMethod { iMethodName :: Text.Text
+data IMethod = IMethod { iMethodName :: Text
                        , iMethodArguments :: [IArgument]
                        , iMethodAnnotations :: [Annotation]
                        } deriving (Eq, Show, Data, Typeable)
 
-data ISignal = ISignal { iSignalName :: Text.Text
+data ISignal = ISignal { iSignalName :: Text
                        , iSignalArguments :: [IArgument]
                        , iSignalAnnotations :: [Annotation]
                      } deriving (Eq, Show, Data, Typeable)
 
-data IProperty = IProperty { iPropertyName :: Text.Text
+data IProperty = IProperty { iPropertyName :: Text
                            , iPropertyType :: DBusType
-                           , iPropertyAccess :: IPropertyAccess
+                           , iPropertyAccess :: PropertyAccess
                            , iPropertyAnnotation :: [Annotation]
                            } deriving (Eq, Show, Data, Typeable)
 
-data IInterface = IInterface { iInterfaceName :: Text.Text
+data IInterface = IInterface { iInterfaceName :: Text
                              , iInterfaceMethods :: [IMethod]
                              , iInterfaceSignals :: [ISignal]
                              , iInterfaceProperties :: [IProperty]
                              , iInterfaceAnnotations :: [Annotation]
                              } deriving (Eq, Show, Data, Typeable)
 
-data INode = INode { nodeName :: Text.Text
+data INode = INode { nodeName :: Text
                    , nodeInterfaces :: [IInterface]
                    , nodeSubnodes :: [INode]
                    } deriving (Eq, Show, Data, Typeable)
@@ -102,11 +101,11 @@ xpAnnotation = xpWrap (\(name, content) -> Annotation name content)
                           (xp2Tuple (xpAttribute "name" xpText)
                                     (xpAttribute "value" xpText))
 
-xpSignature :: PU Text.Text DBusType
+xpSignature :: PU Text DBusType
 xpSignature = xpPartial (eitherParseSig . Text.encodeUtf8)
                         (Text.decodeUtf8 . toSignature)
 
-xpDirection :: PU Text.Text IDirection
+xpDirection :: PU Text IDirection
 xpDirection = xpPartial directionFromText directionToText
 
 xpPropertyAccess = xpPartial propertyAccessFromText propertyAccessToText
@@ -168,7 +167,7 @@ xpNode = xpWrap (\(name, (is, ns)) -> INode name is ns)
                 (xp2Tuple (xpFindMatches xpInterface)
                           (xpFindMatches xpNode))
 
-xmlToNode :: BS.ByteString -> Either Text.Text INode
+xmlToNode :: BS.ByteString -> Either Text INode
 xmlToNode xml = case sourceList [xml] $= parseBytesPos def $$ fromEvents of
     Left e -> Left (Text.pack $ show (e :: SomeException))
     Right d -> case unpickle (xpRoot . xpUnliftElems $ xpNode) $ documentRoot d of
@@ -224,7 +223,7 @@ introspectSignal s =
             , iSignalAnnotations = signalAnnotations s
             }
 
-propertyAccess (Property{propertyAccessors = PropertyWrapper mbSet mbGet})
+propertyAccess Property{propertySet = mbSet, propertyGet = mbGet}
     = case (mbSet, mbGet) of
     (Just{}, Just{}) -> ReadWrite
     (Nothing, Just{}) -> Read
@@ -232,50 +231,77 @@ propertyAccess (Property{propertyAccessors = PropertyWrapper mbSet mbGet})
     (Nothing, Nothing) -> error "iPropertyAccess: Both getter and setter are Nothing"
 
 
-introspectProperty p = IProperty { iPropertyName = propertyName p
-                                 , iPropertyType = propertyType p
-                                 , iPropertyAccess = propertyAccess p
-                                 , iPropertyAnnotation = [] -- TODO
+introspectProperty (SomeProperty p) =
+    IProperty { iPropertyName = propertyName p
+              , iPropertyType = propertyType p
+              , iPropertyAccess = propertyAccess p
+              , iPropertyAnnotation = [] -- TODO
                                  }
 
-introspectInterface :: Interface -> IInterface
-introspectInterface i = IInterface { iInterfaceName = interfaceName i
-                                   , iInterfaceMethods = introspectMethods
+introspectInterface :: Text -> Interface -> IInterface
+introspectInterface n i = IInterface { iInterfaceName = n
+                                     , iInterfaceMethods = introspectMethods
                                                            $ interfaceMethods i
-                                   , iInterfaceSignals =
-                                       introspectSignal <$> interfaceSignals i
-                                   , iInterfaceProperties =
-                                       introspectProperty
+                                     , iInterfaceSignals =
+                                         introspectSignal <$> interfaceSignals i
+                                     , iInterfaceProperties =
+                                         introspectProperty
                                          <$> interfaceProperties i
-                                   , iInterfaceAnnotations = [] -- TODO
-                                   }
+                                     , iInterfaceAnnotations = [] -- TODO
+                                     }
 
-introspectObject o = INode { nodeName = objectPathToText $ objectObjectPath o
-                           , nodeInterfaces = introspectInterface <$>
-                                                 objectInterfaces o
-                           , nodeSubnodes = introspectObject
-                                              <$> objectSubObjects o
-                           }
 
-introspect :: Object -> IO Text.Text
-introspect object = return $ Text.decodeUtf8 . nodeToXml $ introspectObject object
+grabPrefixes :: Map ObjectPath a -> [(ObjectPath, a, Map ObjectPath a)]
+grabPrefixes m =
+    let mbMin = Map.minViewWithKey m
+    in case mbMin of
+        Nothing -> []
+        Just ((pre, obj), m')
+            -> let (sub, rest) = Map.partitionWithKey
+                                 (\k _ -> pre `isPathPrefix` k) m'
+               in (pre, obj, Map.mapKeys (fromJust . stripObjectPrefix pre) sub)
+                  : grabPrefixes rest
 
-introspectMethod :: Object -> Method
+
+introspectObject :: ( ObjectPath
+                    , Object
+                    , Map ObjectPath Object)
+                 -> INode
+introspectObject (path, Object ifaces, sub)
+    = INode { nodeName = objectPathToText path
+            , nodeInterfaces = uncurry introspectInterface <$> Map.toList ifaces
+            , nodeSubnodes = introspectObject <$> grabPrefixes sub
+            }
+
+
+introspectObjects (Objects os) =
+    let rootPath = objectPath "/"
+    in case Map.updateLookupWithKey (\_ _ -> Nothing) rootPath os of
+           (Nothing, _) -> introspectObject (rootPath, Object Map.empty, os)
+           (Just o, os') -> introspectObject (rootPath, o, os')
+
+introspect :: Objects -> IO Text
+introspect object = return $ Text.decodeUtf8 . nodeToXml
+                      $ introspectObjects object
+
+introspectMethod :: Objects -> Method
 introspectMethod object = Method (repMethod $ introspect object)
                                   "Introspect"
                                   Result
                                   ("xml_data" :> ResultDone)
 
-introspectable :: Object -> Interface
-introspectable o = Interface{ interfaceName = "org.freedesktop.DBus.Introspectable"
-                            , interfaceMethods = [introspectMethod o]
+introspectableInterface :: Text
+introspectableInterface = "org.freedesktop.DBus.Introspectable"
+
+introspectable :: Objects -> Object
+introspectable o = object introspectableInterface $
+                   Interface{ interfaceMethods = [introspectMethod o]
                             , interfaceSignals = []
                             , interfaceAnnotations = []
                             , interfaceProperties = []
                             }
 
-addIntrospectable :: Object -> Object
-addIntrospectable o@(Object nm is sos) =
-    let intr = introspectable o
-    in Object nm (if intr `elem` is then is else (intr:is))
-                 (addIntrospectable <$> sos)
+addIntrospectable :: Objects -> Objects
+addIntrospectable os =
+    let intr = introspectable os
+    in root (objectPath "/") intr <> os

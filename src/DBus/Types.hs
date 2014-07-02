@@ -1,20 +1,11 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE NoMonomorphismRestriction #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE PolyKinds #-}
-
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module DBus.Types where
 
@@ -26,7 +17,6 @@ import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Error
 import           Control.Monad.Trans
-import           Control.Monad.Trans.Error
 import           Control.Monad.Writer.Strict
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS
@@ -35,27 +25,24 @@ import           Data.Function (fix, on)
 import           Data.Int
 import           Data.List
 import           Data.List (intercalate)
+import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Singletons (withSingI)
 import           Data.Singletons.Prelude.Bool
-import           Data.Singletons.Prelude.List
+import           Data.Singletons.Prelude.List hiding (Map)
 import           Data.Singletons.TH hiding (Error)
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
 import           Data.Word
 import           Unsafe.Coerce (unsafeCoerce)
 
--- import qualified DBus.Connection as DBus
--- import qualified DBus.Message as DBus
-
-
 data ObjectPath = ObjectPath { opAbsolute :: Bool
-                             , opParts :: [Text.Text]
-                             } deriving (Eq, Data, Typeable)
+                             , opParts :: [Text]
+                             } deriving (Eq, Data, Typeable, Ord)
 
-
-type InterfaceName = Text.Text
-type MemberName = Text.Text
+type InterfaceName = Text
+type MemberName = Text
 
 
 newtype Signature = Signature {fromSignature :: [DBusType]}
@@ -173,6 +160,8 @@ newtype MethodHandlerT m a =
              , MonadIO
              )
 
+methodError :: Monad m => MsgError -> MethodHandlerT m a
+methodError = MHT . throwError
 -- instance MonadError MethodHandlerT
 
 instance MonadTrans MethodHandlerT where
@@ -194,12 +183,12 @@ type family ArgsOf x :: Parity where
 
 infixr 0 :>
 data ResultDescription parity where
-    (:>) :: Text.Text -> ResultDescription n -> ResultDescription (Arg n)
+    (:>) :: Text -> ResultDescription n -> ResultDescription (Arg n)
     ResultDone :: ResultDescription 'Null
 
 infixr 0 :->
 data ArgumentDescription parity where
-    (:->) :: Text.Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
+    (:->) :: Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
     Result :: ArgumentDescription 'Null
 
 
@@ -296,7 +285,7 @@ data DBusValue :: DBusType -> * where
     DBVUInt64     :: Word64        -> DBusValue ('DBusSimpleType TypeUInt64)
     DBVDouble     :: Double        -> DBusValue ('DBusSimpleType TypeDouble)
     DBVUnixFD     :: Word32        -> DBusValue ('DBusSimpleType TypeUnixFD)
-    DBVString     :: Text.Text     -> DBusValue ('DBusSimpleType TypeString)
+    DBVString     :: Text     -> DBusValue ('DBusSimpleType TypeString)
     DBVObjectPath :: ObjectPath    -> DBusValue ('DBusSimpleType TypeObjectPath)
     DBVSignature  :: [DBusType]    -> DBusValue ('DBusSimpleType TypeSignature)
     DBVVariant    :: (SingI t )    => DBusValue t -> DBusValue TypeVariant
@@ -478,72 +467,84 @@ type family ArgParity (x :: [DBusType]) :: Parity where
 data Method where
     Method :: (SingI avs, SingI ts) =>
               MethodWrapper avs ts
-           -> Text.Text
+           -> Text
            -> ArgumentDescription (ArgParity avs)
            -> ResultDescription   (ArgParity ts)
            -> Method
+
+data PropertyAccess = Read
+                    | Write
+                    | ReadWrite
+                    deriving (Eq, Show, Data, Typeable)
 
 data PropertyEmitsChangedSignal = PECSTrue
                                 | PECSInvalidates
                                 | PECSFalse
 
-
-data PropertyWrapper t where
-    PropertyWrapper :: forall t. SingI t =>
-                       { setProperty :: Maybe (DBusValue t -> MethodHandlerT IO Bool)
-                         -- | ^ setter for the property. Returns
-                       , getProperty :: Maybe (IO (DBusValue t))
-                       } -> PropertyWrapper t
-
-data Property where
+data Property t where
     Property :: forall t . (SingI t) =>
                 { propertyPath :: ObjectPath
-                , propertyInterface :: Text.Text
-                , propertyName :: Text.Text
-                , propertyAccessors :: PropertyWrapper t
+                , propertyInterface :: Text
+                , propertyName :: Text
+                , propertyGet :: Maybe (MethodHandlerT IO (DBusValue t))
+                , propertySet :: Maybe (DBusValue t -> MethodHandlerT IO Bool)
                 , propertyEmitsChangedSignal :: PropertyEmitsChangedSignal
-                } -> Property
+                } -> Property t
 
-propertyType :: Property -> DBusType
-propertyType Property{propertyAccessors = accs :: PropertyWrapper t}
-    = fromSing (sing :: Sing t)
+data SomeProperty where
+    SomeProperty :: forall t . (SingI t) =>
+                    {fromSomeProperty :: Property t} -> SomeProperty
 
-data Annotation = Annotation { annotationName :: Text.Text
-                             , annotationValue :: Text.Text
+propertyType :: SingI t => Property t -> DBusType
+propertyType (_ :: Property t) = fromSing (sing :: Sing t)
+
+data Annotation = Annotation { annotationName :: Text
+                             , annotationValue :: Text
                              } deriving (Eq, Show, Data, Typeable)
 
 
 data SignalArgument =
-    SignalArgument { signalArgumentName :: Text.Text
+    SignalArgument { signalArgumentName :: Text
                    , signalArgumentType :: DBusType
                    }
 
-data SignalInterface = SignalI { signalName :: Text.Text
+data SignalInterface = SignalI { signalName :: Text
                                , signalArguments :: [SignalArgument]
                                , signalAnnotations :: [Annotation]
                                }
 
-data Interface = Interface { interfaceName :: Text.Text
-                           , interfaceMethods :: [Method]
+data Interface = Interface { interfaceMethods :: [Method]
                            , interfaceAnnotations :: [Annotation]
                            , interfaceSignals :: [SignalInterface]
-                           , interfaceProperties :: [Property]
+                           , interfaceProperties :: [SomeProperty]
                            }
 
-instance Eq Interface where
-    (==) = (==) `on` interfaceName
+instance Monoid Interface where
+    mempty = Interface [] [] [] []
+    (Interface m1 a1 s1 p1) `mappend` (Interface m2 a2 s2 p2) =
+        Interface (m1 <> m2) (a1 <> a2) (s1 <> s2) (p1 <> p2)
 
-data Object = Object { objectObjectPath :: ObjectPath
-                     , objectInterfaces :: [Interface]
-                     , objectSubObjects :: [Object]
-                     }
+newtype Object = Object {interfaces :: Map Text Interface }
+instance Monoid Object where
+    mempty = Object Map.empty
+    mappend (Object o1) (Object o2) = Object $ Map.unionWith (<>) o1 o2
+
+object interfaceName iface = Object $ Map.singleton interfaceName iface
+
+
+newtype Objects = Objects {unObjects :: Map ObjectPath Object}
+instance Monoid Objects where
+    mempty = Objects Map.empty
+    mappend (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2
+
+root path object = Objects $ Map.singleton path object
 
 --------------------------------------------------
 -- Connection and Message
 --------------------------------------------------
 
-data MsgError = MsgError { errorName :: Text.Text
-                         , errorText :: Maybe Text.Text
+data MsgError = MsgError { errorName :: Text
+                         , errorText :: Maybe Text
                          , errorBody :: [SomeDBusValue]
                          } deriving (Show, Typeable)
 
@@ -582,6 +583,6 @@ data DBusConnection =
         { dBusCreateSerial :: STM Serial
         , dBusAnswerSlots :: TVar AnswerSlots
         , dBusWriteLock :: TMVar (BS.Builder -> IO ())
-        , dBusConnectionName :: Text.Text
+        , dBusConnectionName :: Text
         , connectionAliveRef :: TVar Bool
         }

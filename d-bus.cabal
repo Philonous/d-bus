@@ -25,6 +25,8 @@ library
                    , DBus.MessageBus
                    , DBus.Object
                    , DBus.Representable
+                   , DBus.Method
+                   , DBus.Property
                    , DBus.Signal
                    , DBus.Signature
                    , DBus.TH
@@ -61,8 +63,14 @@ library
   cpp-options:     -DSEND_CREDENTIALS
   }
   default-extensions: DataKinds
+                    , DeriveDataTypeable
                     , FlexibleContexts
+                    , GADTs
+                    , KindSignatures
                     , OverloadedStrings
+                    , PolyKinds
+                    , ScopedTypeVariables
+                    , TypeFamilies
 
 test-suite unittests
   type:              exitcode-stdio-1.0
