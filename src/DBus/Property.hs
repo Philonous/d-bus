@@ -21,10 +21,12 @@ import           DBus.Signal
 import           DBus.Types
 import           DBus.Error
 
-addProperty :: SingI t => Property t -> Objects -> Objects
-addProperty p os = os <> root (propertyPath p)
-                            (object propertiesInterface
-                             mempty{interfaceProperties = [SomeProperty p]})
+property :: SingI t => Property t -> Objects
+property p = root (propertyPath p)
+                  (object propertiesInterface
+                  mempty{interfaceProperties = [SomeProperty p]})
+
+
 
 -- | Create a property from a getter and a setter. It will emit a
 -- PropertyChanged signal when the setter is called. To change
