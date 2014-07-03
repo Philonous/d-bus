@@ -31,6 +31,7 @@ import           Data.Singletons (withSingI)
 import           Data.Singletons.Prelude.Bool
 import           Data.Singletons.Prelude.List hiding (Map)
 import           Data.Singletons.TH hiding (Error)
+import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
@@ -43,6 +44,16 @@ data ObjectPath = ObjectPath { opAbsolute :: Bool
 
 type InterfaceName = Text
 type MemberName = Text
+
+opNode op = ObjectPath { opAbsolute = False
+                       , opParts = take 1 . reverse $ opParts op
+                       }
+
+opPath op = ObjectPath { opAbsolute = opAbsolute op
+                       , opParts = case opParts op of
+                           [] -> []
+                           opps -> init opps
+                       }
 
 
 newtype Signature = Signature {fromSignature :: [DBusType]}
@@ -59,6 +70,9 @@ objectPathToText (ObjectPath abs parts) = (if abs then "/" else "")
 
 instance Show ObjectPath where
     show = Text.unpack . objectPathToText
+
+instance IsString ObjectPath where
+    fromString = objectPath . Text.pack
 
 stripObjectPrefix :: ObjectPath -> ObjectPath -> Maybe ObjectPath
 stripObjectPrefix (ObjectPath abs1 pre) (ObjectPath abs2 x) | abs1 == abs2
@@ -533,6 +547,7 @@ object interfaceName iface = Object $ Map.singleton interfaceName iface
 
 
 newtype Objects = Objects {unObjects :: Map ObjectPath Object}
+
 instance Monoid Objects where
     mempty = Objects Map.empty
     mappend (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2

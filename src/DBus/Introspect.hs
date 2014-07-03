@@ -40,6 +40,9 @@ import           DBus.Method
 
 data IDirection = In | Out deriving (Eq, Show, Data, Typeable)
 
+introspectableInterfaceName :: Text
+introspectableInterfaceName = "org.freedesktop.DBus.Introspectable"
+
 directionFromText :: Text -> Either Text IDirection
 directionFromText "in" = Right In
 directionFromText "out" = Right Out
@@ -251,57 +254,177 @@ introspectInterface n i = IInterface { iInterfaceName = n
                                      }
 
 
+-- | Delete prefix from map, returns (elements with prefix delete, elements that
+-- didn't have this prefix)
+deletePrefix :: ObjectPath -> Map ObjectPath a -> ( Map ObjectPath a
+                                                  , Map ObjectPath a)
+deletePrefix pre m =
+    let (sub, rest) = Map.partitionWithKey (\k _ -> pre `isPathPrefix` k) m
+    in (Map.mapKeys (fromJust . stripObjectPrefix pre) sub, rest)
+
+
 grabPrefixes :: Map ObjectPath a -> [(ObjectPath, a, Map ObjectPath a)]
 grabPrefixes m =
     let mbMin = Map.minViewWithKey m
     in case mbMin of
         Nothing -> []
         Just ((pre, obj), m')
-            -> let (sub, rest) = Map.partitionWithKey
-                                 (\k _ -> pre `isPathPrefix` k) m'
-               in (pre, obj, Map.mapKeys (fromJust . stripObjectPrefix pre) sub)
-                  : grabPrefixes rest
+            -> let (sub, rest) = deletePrefix pre m'
+               in (pre, obj, sub) : grabPrefixes rest
 
+propertiesInterfaceName :: Text
+propertiesInterfaceName = "org.freedesktop.DBus.Properties"
 
-introspectObject :: ( ObjectPath
-                    , Object
-                    , Map ObjectPath Object)
+propertiesInterface :: IInterface
+propertiesInterface =
+    IInterface {
+        iInterfaceName = "org.freedesktop.DBus.Properties"
+      , iInterfaceMethods =
+          [IMethod{
+               iMethodName = "Get"
+             , iMethodArguments =
+                 [ IArgument {
+                       iArgumentName = "interface_name"
+                       , iArgumentType = DBusSimpleType TypeString
+                       , iArgumentDirection = Just In}
+                 , IArgument {
+                       iArgumentName = "property_name"
+                     , iArgumentType = DBusSimpleType TypeString
+                     , iArgumentDirection = Just In}
+                          , IArgument {
+                                iArgumentName = "value"
+                              , iArgumentType = TypeVariant
+                              , iArgumentDirection = Just Out }]
+                      , iMethodAnnotations = []}
+          , IMethod{
+                iMethodName = "Set"
+              , iMethodArguments =
+                  [ IArgument {
+                         iArgumentName = "interface_name"
+                       , iArgumentType = DBusSimpleType TypeString
+                       , iArgumentDirection = Just In }
+                  , IArgument {
+                         iArgumentName = "property_name"
+                       , iArgumentType = DBusSimpleType TypeString
+                       , iArgumentDirection = Just In }
+                  , IArgument {
+                         iArgumentName = "value"
+                        , iArgumentType = TypeVariant
+                        , iArgumentDirection = Just In}]
+              , iMethodAnnotations = [] }
+          , IMethod{
+                iMethodName = "GetAll"
+              , iMethodArguments =
+                  [ IArgument {
+                         iArgumentName = "interface_name"
+                       , iArgumentType = DBusSimpleType TypeString
+                       , iArgumentDirection = Just In }
+                  , IArgument {
+                         iArgumentName = "props"
+                       , iArgumentType = TypeDict TypeString TypeVariant
+                       , iArgumentDirection = Just Out }]
+              , iMethodAnnotations = [] }]
+      , iInterfaceSignals =
+              [ ISignal { iSignalName = "PropertiesChanged"
+                        , iSignalArguments =
+                            [ IArgument {
+                                   iArgumentName = "interface_name"
+                                 , iArgumentType = DBusSimpleType TypeString
+                                 , iArgumentDirection = Nothing}
+                            , IArgument {
+                                   iArgumentName = "changed_properties"
+                                 , iArgumentType = TypeDict TypeString TypeVariant
+                                 , iArgumentDirection = Nothing}
+                            , IArgument {
+                                   iArgumentName = "invalidated_properties"
+                                 , iArgumentType =
+                                     TypeArray (DBusSimpleType TypeString)
+                                 , iArgumentDirection = Nothing}]
+                        , iSignalAnnotations = []}]
+      , iInterfaceProperties = []
+      , iInterfaceAnnotations = []
+      }
+
+introspectObject :: Bool
+                 -> ObjectPath
+                 -> Object
+                 -> Map ObjectPath Object
                  -> INode
-introspectObject (path, Object ifaces, sub)
+introspectObject recurse path (Object ifaces) sub
     = INode { nodeName = objectPathToText path
-            , nodeInterfaces = uncurry introspectInterface <$> Map.toList ifaces
-            , nodeSubnodes = introspectObject <$> grabPrefixes sub
+            , nodeInterfaces =
+                let propIface = if hasInterface propertiesInterfaceName ifaces
+                                then []
+                                else [propertiesInterface]
+                    introspectIface =
+                        if hasInterface introspectableInterfaceName ifaces
+                        then []
+                        else [introspectInterface introspectableInterfaceName $
+                                introspectableInterface path False undefined]
+                in concat [introspectIface
+                          , propIface
+                          , uncurry introspectInterface <$> Map.toList ifaces
+                          ]
+
+            , nodeSubnodes = (if recurse
+                              then (uncurry3 $ introspectObject True)
+                              else \(n, _, _) ->
+                                INode { nodeName = objectPathToText n
+                                      , nodeInterfaces = []
+                                      , nodeSubnodes = []
+                                      })
+                             <$> grabPrefixes sub
             }
+  where
+    hasInterface :: Text -> Map Text Interface -> Bool
+    hasInterface iname o = isJust $ Map.lookup iname o
+
+uncurry3 f (x, y, z) = f x y z
+
+introspectObjects path recursive objs@(Objects os) =
+    case Map.updateLookupWithKey (\_ _ -> Nothing) path os of
+           (Nothing, _) ->
+               let oss = Map.mapKeys (fromMaybe "" . stripObjectPrefix path) os
+               in INode { nodeName = objectPathToText path
+                        , nodeInterfaces = []
+                        , nodeSubnodes =
+                            uncurry3 (introspectObject recursive )
+                              <$> grabPrefixes oss
+                        }
+           (Just o, os') ->
+               let oss = Map.mapKeys (fromMaybe "" . stripObjectPrefix path) os'
+               in introspectObject recursive path o oss
 
 
-introspectObjects (Objects os) =
-    let rootPath = objectPath "/"
-    in case Map.updateLookupWithKey (\_ _ -> Nothing) rootPath os of
-           (Nothing, _) -> introspectObject (rootPath, Object Map.empty, os)
-           (Just o, os') -> introspectObject (rootPath, o, os')
+introspect :: ObjectPath -> Bool -> Objects -> IO Text
+introspect path recursive object = return $ Text.decodeUtf8 . nodeToXml
+                                 $ introspectObjects path recursive object
 
-introspect :: Objects -> IO Text
-introspect object = return $ Text.decodeUtf8 . nodeToXml
-                      $ introspectObjects object
+introspectMethod :: ObjectPath -> Bool -> Objects -> Method
+introspectMethod path recursive object =
+    Method (repMethod $ introspect path recursive object)
+           "Introspect"
+           Result
+           ("xml_data" :> ResultDone)
 
-introspectMethod :: Objects -> Method
-introspectMethod object = Method (repMethod $ introspect object)
-                                  "Introspect"
-                                  Result
-                                  ("xml_data" :> ResultDone)
 
-introspectableInterface :: Text
-introspectableInterface = "org.freedesktop.DBus.Introspectable"
+introspectableInterface path recursive o =
+    Interface{ interfaceMethods = [introspectMethod path recursive o]
+             , interfaceSignals = []
+             , interfaceAnnotations = []
+             , interfaceProperties = []
+             }
 
-introspectable :: Objects -> Object
-introspectable o = object introspectableInterface $
-                   Interface{ interfaceMethods = [introspectMethod o]
-                            , interfaceSignals = []
-                            , interfaceAnnotations = []
-                            , interfaceProperties = []
-                            }
+introspectable :: ObjectPath -> Bool -> Objects -> Object
+introspectable path recursive =
+    object introspectableInterfaceName . introspectableInterface path recursive
 
 addIntrospectable :: Objects -> Objects
 addIntrospectable os =
-    let intr = introspectable os
-    in root (objectPath "/") intr <> os
+    let ro = root "/" (Object Map.empty) <> os
+        intrs = for (Map.keys (Map.delete "/" (unObjects ro))) $ \path ->
+            root path (introspectable path False ro)
+        intr = introspectable "/" True ro
+    in os <> root "/" intr <> mconcat intrs
+  where
+    for = flip fmap
