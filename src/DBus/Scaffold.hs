@@ -9,12 +9,14 @@ module DBus.Scaffold where
 
 import           Control.Applicative
 import           Control.Monad
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Language.Haskell.TH
-import           Language.Haskell.TH.Syntax
 import           Language.Haskell.TH.Lib
+import           Language.Haskell.TH.Syntax
 
 import           DBus.Introspect
 import           DBus.Message
@@ -77,7 +79,22 @@ promoteDBusType (TypeDictEntry k v) =
 promoteDBusType TypeVariant = [t| TypeVariant |]
 promoteDBusType TypeUnit = [t| TypeUnit |]
 
+readIntrospectXml :: FilePath -> Q INode
+readIntrospectXml interfaceFile = do
+    qAddDependentFile interfaceFile
+    xml <- qRunIO $ BS.readFile interfaceFile
+    case xmlToNode xml of
+        Left e -> error $ "Could not parse introspection XML: " ++ show e
+        Right r -> return r
 
+
+methodFunction :: (MethodDescription -> String) -- ^ Generate names from Method
+                                                -- descriptions
+               -> Maybe Text -- ^ Just name to fix the entity, Nothing to leave
+                             -- it as a parameter
+               -> MethodDescription -- ^ The method description to generate a
+                                    -- function from
+               -> Q [Dec]
 methodFunction nameGen mbEntity method = do
     let name = mkName (nameGen method)
     conName <- newName "con"
@@ -103,8 +120,6 @@ methodFunction nameGen mbEntity method = do
         entityType = case mbEntity of
             Nothing -> [[t|Text|]]
             Just _ -> []
-
-
     entityName <- newName "entity"
     let entityVar = case mbEntity of
             Nothing -> [varP entityName]
