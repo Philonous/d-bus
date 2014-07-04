@@ -19,11 +19,13 @@ import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad (liftM)
+import           Control.Monad.Error
 import           Control.Monad.Trans
 import           Data.List (intercalate, find)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
+import           Data.Monoid
 import           Data.Singletons.TH
 import           Data.String
 import           Data.Text (Text)
@@ -45,6 +47,15 @@ findProperty (Object o) ifaceName prop
                                 $ interfaceProperties iface of
             Nothing -> Left noSuchProperty
             Just p -> Right p
+
+getAllProperties iface = liftM (SDBA . singletonArg . toRep . mconcat)
+                         . forM (interfaceProperties iface)
+                         $ \(SomeProperty p) ->
+    case propertyGet p of
+        Nothing -> return (Map.empty :: Map Text (DBusValue TypeVariant))
+        Just g -> flip catchMethodError (\_ -> return Map.empty) $ do
+            res <-  g
+            return $ Map.singleton (propertyName p) (DBVVariant res)
 
 handleProperty :: Object
                -> ObjectPath
@@ -70,6 +81,16 @@ handleProperty o path "Set" [mbIface , mbProp, mbVal]
               invalidated <- wt v
               when invalidated $ propertyChanged prop v
               return (SDBA ArgsNil))
+handleProperty (Object o) path "GetAll" [mbIface]
+    | Just ifaceName <- fromRep =<< dbusValue mbIface
+    = case Map.lookup ifaceName o of
+        Just iface -> Right $ getAllProperties iface
+        Nothing -> if ifaceName `elem` [""
+                                        -- d-feet silliness:
+                                       , "org.freedesktop.DBus.Properties"
+                                       ]
+                   then Right $ getAllProperties (mconcat $ Map.elems o)
+                   else Left noSuchInterface
 handleProperty _ _ _ _ = Left argTypeMismatch
 
 callAtPath :: Objects

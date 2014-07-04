@@ -90,13 +90,13 @@ test-suite unittests
                    , text
                    , xml-hamlet
 
-test-suite integrationtest
-  type:              exitcode-stdio-1.0
-  hs-source-dirs:    tests
-  main-is:           Runtest.hs
-  build-depends:     base >= 4 && < 5
-                   , d-bus
-                   , text
+-- test-suite integrationtest
+--   type:              exitcode-stdio-1.0
+--   hs-source-dirs:    tests
+--   main-is:           Runtest.hs
+--   build-depends:     base >= 4 && < 5
+--                    , d-bus
+--                    , text
 
 
 -- test-suite singletons

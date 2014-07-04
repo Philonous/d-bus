@@ -56,13 +56,28 @@ import           DBus.Signal
 import           DBus.Property
 import           DBus.Introspect
 
-handleMessage handleCall handleSignals answerSlots (header, body) =
-        case messageType header of
-            MessageTypeMethodCall -> handleCall header body
-            MessageTypeMethodReturn -> handleReturn True
-            MessageTypeError -> handleError
-            MessageTypeSignal -> handleSignals header body
-            _ -> return ()
+debug t = hPutStrLn stderr $ "d-bus debug: " ++ t
+
+handleMessage :: Show a =>
+                 (MessageHeader -> a -> IO ())
+              -> (MessageHeader -> a -> IO ())
+              -> TVar (Map.Map Word32 (Either a a -> STM ()))
+              -> (MessageHeader, a)
+              -> IO ()
+handleMessage handleCall handleSignals answerSlots (header, body) = do
+    case messageType header of
+        MessageTypeMethodCall -> do
+            let hfs = fields header
+            debug $ "Dispatching method call "
+                ++ show (hFPath hfs)
+                ++ "; " ++ (maybe "" Text.unpack $ hFInterface hfs)
+                ++ "; " ++ (maybe "" Text.unpack $ hFMember hfs)
+                ++ ": " ++ show body
+            handleCall header body
+        MessageTypeMethodReturn -> handleReturn True
+        MessageTypeError -> handleError
+        MessageTypeSignal -> handleSignals header body
+        _ -> return ()
   where
     handleReturn nonError = case hFReplySerial $ fields header of
         Nothing -> return ()
@@ -108,9 +123,11 @@ objectRoot o conn header args | fs <- fields header
                 Right r -> return r
     serial <- atomically $ dBusCreateSerial conn
     forM_ sigs $ flip emitSignal conn
+    debug $ "method call returned " ++ show ret
     case ret of
         Left err -> sendBS conn $ errToErrMessage serial err
-        Right r -> do sendBS conn $ mkReturnMethod serial r
+        Right r -> sendBS conn $ mkReturnMethod serial r
+    debug "done"
 
   where notUnit (DBV DBVUnit) = False
         notUnit _ = True

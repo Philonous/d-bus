@@ -37,14 +37,15 @@ mkProperty :: Representable a =>
            -> Text
            -> Maybe (MethodHandlerT IO a)
            -> Maybe (a -> MethodHandlerT IO Bool)
+           -> PropertyEmitsChangedSignal
            -> Property (RepType a)
-mkProperty path iface name get set =
+mkProperty path iface name get set pecs =
     let prop = Property { propertyPath = path
                         , propertyInterface = iface
                         , propertyName = name
                         , propertySet = doSet <$> set
                         , propertyGet = fmap toRep <$> get
-                        , propertyEmitsChangedSignal = PECSTrue
+                        , propertyEmitsChangedSignal = pecs
                         }
     in prop
   where
@@ -65,15 +66,16 @@ mkTVarProperty :: Representable a =>
                -> TVar a
                -> Property (RepType a)
 mkTVarProperty path iface name acc pecs tv =
-    let prop = mkProperty path iface name
-                 (case acc of
-                       Write -> Nothing
-                       _ -> Just (liftIO . atomically $ readTVar tv))
-                 (case acc of
-                       Read -> Nothing
-                       _ -> Just (\v -> liftIO (atomically (writeTVar tv v))
-                                        >> return True))
-    in prop{propertyEmitsChangedSignal = pecs}
+    mkProperty path iface name
+        (case acc of
+              Write -> Nothing
+              _ -> Just (liftIO . atomically $ readTVar tv))
+        (case acc of
+              Read -> Nothing
+              _ -> Just (\v -> liftIO (atomically (writeTVar tv v))
+                               >> return True))
+        pecs
+
 
 
 manageStmProperty prop get con = do

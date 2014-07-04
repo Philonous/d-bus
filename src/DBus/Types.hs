@@ -178,6 +178,12 @@ methodError :: Monad m => MsgError -> MethodHandlerT m a
 methodError = MHT . throwError
 -- instance MonadError MethodHandlerT
 
+catchMethodError :: Monad m =>
+                    MethodHandlerT m a
+                 -> (MsgError -> MethodHandlerT m a)
+                 -> MethodHandlerT m a
+catchMethodError m f = MHT $ catchError (unMHT m) (unMHT . f)
+
 instance MonadTrans MethodHandlerT where
     lift = MHT . lift . lift
 
