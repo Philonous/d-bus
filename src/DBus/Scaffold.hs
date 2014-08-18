@@ -22,6 +22,7 @@ import           DBus.Introspect
 import           DBus.Message
 import           DBus.Representable
 import           DBus.Types
+import           DBus.Property
 
 
 data MethodDescription = MD { methodObjectPath :: Text
@@ -50,6 +51,29 @@ nodeMethodDescriptions path node =
         subNodeMembers = nodeSubnodes node >>= \n  ->
             let subPath = path <> "/" <> nodeName n
             in nodeMethodDescriptions subPath n
+    in ifaceMembers ++ subNodeMembers
+
+
+data PropertyDescription = PD { pdObjectPath :: Text
+                              , pdInterface :: Text
+                              , pdName :: Text
+                              , pdType :: DBusType
+                              }
+
+interfacPropertyDescriptions path iface =
+    for (iInterfaceProperties iface) $ \p ->
+    PD { pdObjectPath = path
+       , pdInterface = iInterfaceName iface
+       , pdName = iPropertyName p
+       , pdType = iPropertyType p
+       }
+  where for = flip map
+
+nodePropertyDescriptions path node =
+    let ifaceMembers = interfacPropertyDescriptions path =<< nodeInterfaces node
+        subNodeMembers = nodeSubnodes node >>= \n  ->
+            let subPath = path <> "/" <> nodeName n
+            in nodePropertyDescriptions subPath n
     in ifaceMembers ++ subNodeMembers
 
 liftText t = [|Text.pack $(liftString (Text.unpack  t))|]
@@ -86,7 +110,6 @@ readIntrospectXml interfaceFile = do
     case xmlToNode xml of
         Left e -> error $ "Could not parse introspection XML: " ++ show e
         Right r -> return r
-
 
 methodFunction :: (MethodDescription -> String) -- ^ Generate names from Method
                                                 -- descriptions
@@ -150,3 +173,33 @@ methodFunction nameGen mbEntity method = do
           []
          ]
     return [tp, fun]
+
+propertyFromDescription :: (PropertyDescription -> String)
+                        -> Maybe Text
+                        -> PropertyDescription
+                        -> Q [Dec]
+propertyFromDescription nameGen mbEntity pd = do
+    entName <- newName "entity"
+    let rp ent = [|RP{ rpEntity = $ent
+                     , rpObject = objectPath $(liftText $ pdObjectPath pd)
+                     , rpInterface = $(liftText $ pdInterface pd)
+                     , rpName = $(liftText $ pdName pd)
+                     } |]
+        name = mkName $ nameGen pd
+        entN = (mkName "entity")
+        typeName = mkName "t"
+
+        arg = case mbEntity of
+            Nothing -> [[t|Text|]]
+            Just _ -> []
+        t = promoteDBusType $ pdType pd
+    tp <- sigD name $ forallT [plainTV typeName]
+                        (sequence [ classP ''Representable [varT typeName]
+                                  , equalP [t|RepType $(varT typeName)|] t ])
+                        (arrows arg [t|RemoteProperty $(varT typeName)|])
+    cl <- case mbEntity of
+        Nothing -> funD name [clause [varP entN]
+                              (normalB (rp (varE entN))) []]
+        Just e -> valD (varP name) (normalB . rp $ liftText e) []
+
+    return [tp, cl]
