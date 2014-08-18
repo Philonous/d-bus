@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 module DBus.Property where
 
@@ -20,10 +21,11 @@ import qualified Data.Text as Text
 import           DBus.Signal
 import           DBus.Types
 import           DBus.Error
+import           DBus.Message
 
 property :: SingI t => Property t -> Objects
 property p = root (propertyPath p)
-                  (object propertiesInterface
+                  (object propertiesInterfaceName
                   mempty{interfaceProperties = [SomeProperty p]})
 
 
@@ -94,10 +96,8 @@ manageStmProperty prop get con = do
         f x'
         go  f x'
 
-
-
 -- | Interface for D-BUs properties
-propertiesInterface = "org.freedesktop.DBus.Properties"
+propertiesInterfaceName = "org.freedesktop.DBus.Properties"
 
 -- | Create a propertyChangedSignal for a property
 propertyChangedSignal :: Representable a =>
@@ -112,7 +112,7 @@ propertyChangedSignal prop x =
         PECSFalse -> Nothing
         PECSTrue ->
             Just $ Signal { signalPath = path
-                          , signalInterface = propertiesInterface
+                          , signalInterface = propertiesInterfaceName
                           , signalMember = "PropertiesChanged"
                           , signalBody =
                               [ DBV $
@@ -123,7 +123,7 @@ propertyChangedSignal prop x =
         -- invalidates or emits changed but is write-only
         PECSInvalidates -> Just $
             Signal { signalPath = path
-                   , signalInterface = propertiesInterface
+                   , signalInterface = propertiesInterfaceName
                    , signalMember = "PropertiesChanged"
                    , signalBody =
                        [ DBV $ toRep
@@ -142,3 +142,33 @@ emitPropertyChanged :: Representable a =>
 emitPropertyChanged prop x con = do
     let mbSig = propertyChangedSignal prop x
     Foldable.forM_ mbSig $ flip emitSignal con
+
+data RemoteProperty a = RP { rpEntity :: Text
+                           , rpObject :: ObjectPath
+                           , rpInterface :: Text
+                           , rpName :: Text
+                           } deriving (Show, Eq)
+
+getProperty :: Representable a =>
+               RemoteProperty a
+            -> DBusConnection
+            -> IO (Either MethodError a)
+getProperty rp con = do
+     res <- callMethod (rpEntity rp) (rpObject rp) propertiesInterfaceName "Get"
+                (rpInterface rp , rpName rp) [] con
+     return $ castVariant =<< res
+  where
+    castVariant v = case fromRep =<< fromVariant v of
+        Nothing -> Left $ MethodSignatureMissmatch [DBV v]
+        Just x -> Right x
+
+
+
+setProperty :: Representable a =>
+               RemoteProperty a
+            -> a
+            -> DBusConnection
+            -> IO (Either MethodError a)
+setProperty rp x con = do
+     callMethod (rpEntity rp) (rpObject rp) propertiesInterfaceName "Set"
+                (rpInterface rp , rpName rp, DBVVariant $ toRep x) [] con
