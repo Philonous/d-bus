@@ -69,14 +69,15 @@ handleProperty o _ "Get" [mbIface, mbProp]
       >>= (\(SomeProperty prop) ->
             case propertyGet prop of
                 Nothing -> Left propertyNotReadable
-                Just rd -> Right $ SDBA . singletonArg <$> rd)
+                Just rd -> Right $ SDBA . singletonArg . DBVVariant <$> rd)
 handleProperty o path "Set" [mbIface , mbProp, mbVal]
     | Just ifaceName <- fromRep =<< dbusValue mbIface
     , Just propName <- fromRep =<< dbusValue mbProp
     = findProperty o ifaceName propName
       >>= (\(SomeProperty prop@Property{propertySet = set}) -> do
           wt <- maybe (Left propertyNotWriteable) Right set
-          v <- maybe (Left argTypeMismatch) Right (dbusValue mbVal)
+          v <- maybe (Left argTypeMismatch) Right
+                   (fromVariant =<< dbusValue mbVal)
           Right $ do
               invalidated <- wt v
               when invalidated $ propertyChanged prop v
