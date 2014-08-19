@@ -53,6 +53,7 @@ module DBus
     , callMethod
     , callMethod'
     , MsgError(..)
+    , MethodHandlerT(..)
 -- * Properties
     , Property (..)
     , SomeProperty(..)
