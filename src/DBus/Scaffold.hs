@@ -87,18 +87,19 @@ arrows = flip $ foldr (\t ts -> appT (appT arrowT t) ts)
 tupleType :: [TypeQ] -> TypeQ
 tupleType xs = foldl (\ts t -> appT ts t) (tupleT (length xs)) xs
 
+promoteSimpleType t = promotedT (mkName (show t))
+
 promoteDBusType :: DBusType -> TypeQ
-promoteDBusType (DBusSimpleType t) = [t|'DBusSimpleType
-                                        $(promotedT (mkName (show t)))|]
+promoteDBusType (DBusSimpleType t) = [t|'DBusSimpleType $(promoteSimpleType t)|]
 promoteDBusType (TypeArray t) = [t| TypeArray $(promoteDBusType t)|]
 promoteDBusType (TypeStruct ts) =
     let ts' = promotedListT $ promoteDBusType <$> ts
     in [t| TypeStruct $ts'|]
 promoteDBusType (TypeDict k v) =
-    [t| TypeDict $(promoteDBusType (DBusSimpleType k))
+    [t| TypeDict $(promoteSimpleType k)
                  $(promoteDBusType v) |]
 promoteDBusType (TypeDictEntry k v) =
-    [t| TypeDictEntry $(promoteDBusType (DBusSimpleType k))
+    [t| TypeDictEntry $(promoteSimpleType k)
                       $(promoteDBusType v) |]
 promoteDBusType TypeVariant = [t| TypeVariant |]
 promoteDBusType TypeUnit = [t| TypeUnit |]
