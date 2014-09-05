@@ -1,11 +1,12 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module DBus.MainLoop where
 
@@ -58,13 +59,13 @@ import           DBus.Introspect
 
 debug t = hPutStrLn stderr $ "d-bus debug: " ++ t
 
-handleMessage :: Show a =>
-                 (MessageHeader -> a -> IO ())
-              -> (MessageHeader -> a -> IO ())
-              -> TVar (Map.Map Word32 (Either a a -> STM ()))
-              -> (MessageHeader, a)
+handleMessage :: (MessageHeader -> [SomeDBusValue] -> IO ())
+              -> (MessageHeader -> [SomeDBusValue] -> IO a)
+              -> TVar AnswerSlots
+              -> TVar SignalSlots
+              -> (MessageHeader, [SomeDBusValue])
               -> IO ()
-handleMessage handleCall handleSignals answerSlots (header, body) = do
+handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = do
     case messageType header of
         MessageTypeMethodCall -> do
             let hfs = fields header
@@ -76,7 +77,7 @@ handleMessage handleCall handleSignals answerSlots (header, body) = do
             handleCall header body
         MessageTypeMethodReturn -> handleReturn True
         MessageTypeError -> handleError
-        MessageTypeSignal -> handleSignals header body
+        MessageTypeSignal -> handleSignal
         _ -> return ()
   where
     handleReturn nonError = case hFReplySerial $ fields header of
@@ -93,6 +94,35 @@ handleMessage handleCall handleSignals answerSlots (header, body) = do
     handleError = case hFReplySerial $ fields header of
         Nothing -> return () -- TODO: handle non-response errors
         Just s -> handleReturn False
+    handleSignal = do
+      handleSignals header body
+      sSlots <- atomically $ readTVar signalSlots
+      let fs = fields header
+      case () of
+         _ | Just iface <- hFInterface fs
+           , Just member <- hFMember fs
+           , Just path <- hFPath fs
+           , Just sender <- hFSender fs
+             -> case Map.lookup ( Match iface
+                                , Match member
+                                , Match path
+                                , Match sender)
+                                sSlots of
+                    Just handler ->
+                        let sig = Signal { signalPath = path
+                                         , signalInterface = iface
+                                         , signalMember = member
+                                         , signalBody = body
+                                         }
+                        in handler sig
+                    _  -> debug $ "Unhandled signal"
+                                   ++ show iface ++ "; "
+                                   ++ show member ++ "; "
+                                   ++ show path ++ "; "
+                                   ++ show sender ++ ": "
+                                   ++ show body ++ "\n"
+           | otherwise -> debug $ "Signal is missing header fields:"
+                                       ++ show header ++ "; " ++ show body
 
 -- | Create a message handler that dispatches matches to the methods in a root
 -- object
@@ -204,6 +234,7 @@ connectBus transport handleCalls handleSignals = do
             return s
     lock <- newTMVarIO $ BS.hPutBuilder h
     answerSlots <- newTVarIO (Map.empty :: AnswerSlots)
+    signalSlots <- newTVarIO (Map.empty :: SignalSlots)
     aliveRef <- newTVarIO True
     weakAliveRef <- mkWeakPtr aliveRef Nothing
     let kill = do
@@ -215,6 +246,7 @@ connectBus transport handleCalls handleSignals = do
         slots <- atomically $ do sls <- readTVar answerSlots
                                  writeTVar answerSlots Map.empty
                                  return sls
+        atomically $ writeTVar signalSlots Map.empty
         atomically $ forM_ (Map.elems slots) $ \s -> s . Left $
                                         [DBV $ DBVString "Connection Closed"]
     mfix $ \conn' -> do
@@ -225,11 +257,13 @@ connectBus transport handleCalls handleSignals = do
                 C.$$ (C.awaitForever $ liftIO .
                       handleMessage (handleCalls conn')
                                     (handleSignals conn')
-                                     answerSlots))
+                                    answerSlots
+                                    signalSlots ))
             (\e -> print (e :: Ex.SomeException) >> kill >> Ex.throwIO e)
         addFinalizer aliveRef $ killThread handlerThread
         let conn = DBusConnection { dBusCreateSerial = getSerial
                                   , dBusAnswerSlots = answerSlots
+                                  , dbusSignalSlots = signalSlots
                                   , dBusWriteLock = lock
                                   , dBusConnectionName = ""
                                   , connectionAliveRef = aliveRef

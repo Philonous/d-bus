@@ -599,10 +599,43 @@ type Serial = Word32
 type Slot = Either [SomeDBusValue] [SomeDBusValue] -> STM ()
 type AnswerSlots = Map.Map Serial Slot
 
+data Match a = Match a | MatchAny
+             deriving (Show)
+
+instance Eq a => Eq (Match a) where
+    _ == MatchAny = True
+    MatchAny == _ = False
+    Match x == Match y = x == y
+
+instance Ord a => Ord (Match a) where
+    compare MatchAny (Match _) = LT
+    compare MatchAny MatchAny  = EQ
+    compare (Match _) MatchAny = GT
+    compare (Match x) (Match y) = compare x y
+
+maybeToMatch :: Maybe a -> Match a
+maybeToMatch Nothing = MatchAny
+maybeToMatch (Just x) = Match x
+
+data MatchSignal = MatchSignal { matchInterface :: Maybe Text
+                               , matchMember :: Maybe Text
+                               , matchPath :: Maybe ObjectPath
+                               , matchSender :: Maybe Text
+                               } deriving (Show, Eq, Ord)
+
+anySignal = MatchSignal Nothing Nothing Nothing Nothing
+
+type SignalSlots = Map.Map ( Match Text
+                           , Match Text
+                           , Match ObjectPath
+                           , Match Text)
+                           (Signal -> IO ())
+
 data DBusConnection =
     DBusConnection
         { dBusCreateSerial :: STM Serial
         , dBusAnswerSlots :: TVar AnswerSlots
+        , dbusSignalSlots :: TVar SignalSlots
         , dBusWriteLock :: TMVar (BS.Builder -> IO ())
         , dBusConnectionName :: Text
         , connectionAliveRef :: TVar Bool
