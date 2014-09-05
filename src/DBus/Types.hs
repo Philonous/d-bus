@@ -15,7 +15,7 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
-import           Control.Monad.Error
+import           Control.Monad.Except
 import           Control.Monad.Trans
 import           Control.Monad.Writer.Strict
 import qualified Data.ByteString as BS
@@ -167,7 +167,7 @@ singletons [d|
 
 -- | A Transformer for (IO) actions that might want to send a signal.
 newtype MethodHandlerT m a =
-    MHT { unMHT :: ErrorT MsgError (WriterT [Signal] m) a}
+    MHT { unMHT :: ExceptT MsgError (WriterT [Signal] m) a}
     deriving ( Functor
              , Applicative
              , Monad
@@ -188,13 +188,13 @@ instance MonadTrans MethodHandlerT where
     lift = MHT . lift . lift
 
 runMethodHandlerT :: MethodHandlerT m a -> m (Either MsgError a, [Signal])
-runMethodHandlerT (MHT w) = runWriterT $ runErrorT w
+runMethodHandlerT (MHT w) = runWriterT $ runExceptT w
 
 data Signal = Signal { signalPath :: ObjectPath
                      , signalInterface :: InterfaceName
                      , signalMember :: MemberName
                      , signalBody :: [SomeDBusValue]
-                     }
+                     } deriving (Show)
 
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
@@ -570,24 +570,6 @@ data MsgError = MsgError { errorName :: Text
                          } deriving (Show, Typeable)
 
 instance Ex.Exception MsgError
-
-instance Error MsgError where
-    strMsg str = MsgError { errorName = "org.freedesktop.DBus.Error.Failed"
-                          , errorText = Just (Text.pack str)
-                          , errorBody = []
-                          }
-    noMsg = MsgError { errorName = "org.freedesktop.DBus.Error.Failed"
-                     , errorText = Nothing
-                     , errorBody = []
-                     }
-
-
-data Connection = Connection { primConnection :: () -- DBus.Connection
-                             , answerSlots :: TVar (Map.Map Word32
-                                                    (TMVar (Either MsgError
-                                                                  SomeDBusValue)))
-                             , mainLoop :: ThreadId
-                             }
 
 data MethodError = MethodErrorMessage [SomeDBusValue]
                  | MethodSignatureMissmatch [SomeDBusValue]

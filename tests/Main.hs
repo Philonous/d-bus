@@ -1,3 +1,4 @@
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
@@ -176,7 +177,8 @@ instance Arbitrary SomeDBusValue where
             STypeArray ts -> withSingI ts $
                 ( case shrink (fromSing (sing :: Sing t)) of
                        tss -> for tss $ \tshrink -> case toSing tshrink of
-                               (SomeSing (ss :: Sing tt)) -> withSingI ss $
+                               (SomeSing (ss :: Sing (tt :: DBusType)))
+                                   -> withSingI ss $
                                    DBV (DBVArray ([] :: [DBusValue tt]))
                 ) ++
                 [ DBV ( DBVArray [] :: DBusValue t)

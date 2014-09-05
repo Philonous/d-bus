@@ -329,10 +329,10 @@ getAnswer = (atomically =<<)
 -- | Synchronously call a method.
 --
 -- This is the "cooked" version of callMethod\''. It automatically converts
--- arguments and returns values and throws conversion errors as exceptions
+-- arguments and returns values.
 --
 -- If the returned value's type doesn't match the expected type a
--- 'MethodSignatureMissmatch' is thrown.
+-- 'MethodSignatureMissmatch' is returned
 --
 -- You can pass in and extract multiple arguments and return values with types
 -- that are represented by DBus Structs (e.g. tuples). More specifically,
@@ -374,6 +374,7 @@ callMethod dest path interface member (arg :: args) flags conn = do
         Right rvs -> case listToSomeArguments rvs of
             sr@(SDBA (r :: DBusArguments ats)) ->
                 maybe (Left $ MethodSignatureMissmatch rvs) Right
+                -- Use fix to access the return type (We only care about the type)
                 $ fix $ \(_ :: Maybe ret) ->
                 case sing :: Sing (RepType ret) of
                     STypeStruct ts -> case (r, sing :: Sing ats) of

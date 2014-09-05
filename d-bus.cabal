@@ -54,7 +54,7 @@ library
                    , stm >= 2.4
                    , template-haskell >= 2.8
                    , text >= 1.1
-                   , transformers >= 0.3
+                   , transformers >= 0.4
                    , xml-conduit >= 1.1
                    , xml-picklers >= 0.3
                    , xml-types >= 0.3

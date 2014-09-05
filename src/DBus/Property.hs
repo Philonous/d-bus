@@ -78,8 +78,11 @@ mkTVarProperty path iface name acc pecs tv =
                                >> return True))
         pecs
 
-
-
+manageStmProperty :: (Representable t, Eq t) =>
+                     Property (RepType t)
+                  -> STM t
+                  -> DBusConnection
+                  -> IO ()
 manageStmProperty prop get con = do
     let sendSig v = emitPropertyChanged prop v con
     forkIO $ onEdge sendSig

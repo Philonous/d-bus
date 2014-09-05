@@ -8,7 +8,7 @@
 module DBus.Auth where
 
 import           Control.Applicative
-import           Control.Monad.Error
+import           Control.Monad.Except
 import           Control.Monad.Free
 import qualified Data.Attoparsec.ByteString as AP
 import qualified Data.Attoparsec.ByteString.Char8 as AP8
@@ -121,7 +121,7 @@ data SASLF a = Send ClientMessage a
              | Recv (ServerMessage -> a)
              deriving (Functor)
 
-newtype SASL a = SASL {unSASL :: ErrorT String (Free SASLF) a}
+newtype SASL a = SASL {unSASL :: ExceptT String (Free SASLF) a}
                deriving (Functor, Applicative, Monad)
 
 instance MonadError String SASL where
@@ -164,7 +164,7 @@ runSasl snd' rcv' (SASL s) = do
                                      ++ ": " ++ show e
                 Right r -> return r
     return ()
-    res <- go snd rcv (runErrorT s)
+    res <- go snd rcv (runExceptT s)
     case res of
         Left e -> do
             snd (CMCancel)

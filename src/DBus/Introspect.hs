@@ -396,13 +396,13 @@ introspectObjects path recursive objs@(Objects os) =
                in introspectObject recursive path o oss
 
 
-introspect :: ObjectPath -> Bool -> Objects -> IO Text
-introspect path recursive object = return $ Text.decodeUtf8 . nodeToXml
+introspect :: ObjectPath -> Bool -> Objects -> Text
+introspect path recursive object = Text.decodeUtf8 . nodeToXml
                                  $ introspectObjects path recursive object
 
 introspectMethod :: ObjectPath -> Bool -> Objects -> Method
 introspectMethod path recursive object =
-    Method (repMethod $ introspect path recursive object)
+    Method (repMethod $ (return (introspect path recursive object) :: IO Text))
            "Introspect"
            Result
            ("xml_data" :> ResultDone)

@@ -19,7 +19,7 @@ import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad (liftM)
-import           Control.Monad.Error
+import           Control.Monad.Except
 import           Control.Monad.Trans
 import           Data.List (intercalate, find)
 import           Data.Map (Map)
