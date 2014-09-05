@@ -25,7 +25,7 @@ import           DBus.Message
 
 property :: SingI t => Property t -> Objects
 property p = root (propertyPath p)
-                  (object propertiesInterfaceName
+                  (object (propertyInterface p)
                   mempty{interfaceProperties = [SomeProperty p]})
 
 
