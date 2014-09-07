@@ -171,7 +171,7 @@ setProperty :: Representable a =>
                RemoteProperty a
             -> a
             -> DBusConnection
-            -> IO (Either MethodError a)
+            -> IO (Either MethodError ())
 setProperty rp x con = do
      callMethod (rpEntity rp) (rpObject rp) propertiesInterfaceName "Set"
                 (rpInterface rp , rpName rp, DBVVariant $ toRep x) [] con
