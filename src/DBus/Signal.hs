@@ -129,7 +129,7 @@ addSignalHandler :: MatchSignal
                  -> DBusConnection
                  -> IO ()
 addSignalHandler slot rules m dbc = do
-    atomically $ modifyTVar (dbusSignalSlots dbc) (Map.insert (fromSlot slot) m)
+    atomically $ modifyTVar (dbusSignalSlots dbc) ((fromSlot slot, m):)
     let rule = rules <>
                  matchAll { mrType      = Just MessageTypeSignal
                           , mrInterface = matchInterface slot

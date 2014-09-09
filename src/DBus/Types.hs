@@ -584,16 +584,10 @@ type AnswerSlots = Map.Map Serial Slot
 data Match a = Match a | MatchAny
              deriving (Show)
 
-instance Eq a => Eq (Match a) where
-    _ == MatchAny = True
-    MatchAny == _ = False
-    Match x == Match y = x == y
-
-instance Ord a => Ord (Match a) where
-    compare MatchAny (Match _) = LT
-    compare MatchAny MatchAny  = EQ
-    compare (Match _) MatchAny = GT
-    compare (Match x) (Match y) = compare x y
+checkMatch :: Eq a => Match a -> Match a -> Bool
+checkMatch MatchAny _ = True
+checkMatch _ MatchAny = True
+checkMatch (Match x) (Match y) = x == y
 
 maybeToMatch :: Maybe a -> Match a
 maybeToMatch Nothing = MatchAny
@@ -607,11 +601,11 @@ data MatchSignal = MatchSignal { matchInterface :: Maybe Text
 
 anySignal = MatchSignal Nothing Nothing Nothing Nothing
 
-type SignalSlots = Map.Map ( Match Text
-                           , Match Text
-                           , Match ObjectPath
-                           , Match Text)
-                           (Signal -> IO ())
+type SignalSlots = [ (( Match Text
+                      , Match Text
+                      , Match ObjectPath
+                      , Match Text)
+                     , (Signal -> IO ())) ]
 
 data DBusConnection =
     DBusConnection

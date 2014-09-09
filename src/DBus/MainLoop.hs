@@ -57,7 +57,9 @@ import           DBus.Signal
 import           DBus.Property
 import           DBus.Introspect
 
-debug t = hPutStrLn stderr $ "d-bus debug: " ++ t
+debug t = do
+    hPutStrLn stderr $ "d-bus debug: " ++ t
+    hFlush stdout
 
 handleMessage :: (MessageHeader -> [SomeDBusValue] -> IO ())
               -> (MessageHeader -> [SomeDBusValue] -> IO a)
@@ -103,18 +105,18 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
            , Just member <- hFMember fs
            , Just path <- hFPath fs
            , Just sender <- hFSender fs
-             -> case Map.lookup ( Match iface
-                                , Match member
-                                , Match path
-                                , Match sender)
-                                sSlots of
-                    Just handler ->
+             -> case filter (match4 ( Match iface
+                                    , Match member
+                                    , Match path
+                                    , Match sender) . fst)
+                             sSlots of
+                    handlers@(_:_) ->
                         let sig = Signal { signalPath = path
                                          , signalInterface = iface
                                          , signalMember = member
                                          , signalBody = body
                                          }
-                        in handler sig
+                        in forM_ handlers $ \(_, handler) -> handler sig
                     _  -> debug $ "Unhandled signal"
                                    ++ show iface ++ "; "
                                    ++ show member ++ "; "
@@ -123,6 +125,12 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
                                    ++ show body ++ "\n"
            | otherwise -> debug $ "Signal is missing header fields:"
                                        ++ show header ++ "; " ++ show body
+    match4 (x1, x2, x3, x4) (y1, y2, y3, y4) =
+        and $ [ x1 `checkMatch` y1
+              , x2 `checkMatch` y2
+              , x3 `checkMatch` y3
+              , x4 `checkMatch` y4
+              ]
 
 -- | Create a message handler that dispatches matches to the methods in a root
 -- object
@@ -234,7 +242,7 @@ connectBus transport handleCalls handleSignals = do
             return s
     lock <- newTMVarIO $ BS.hPutBuilder h
     answerSlots <- newTVarIO (Map.empty :: AnswerSlots)
-    signalSlots <- newTVarIO (Map.empty :: SignalSlots)
+    signalSlots <- newTVarIO ([] :: SignalSlots)
     aliveRef <- newTVarIO True
     weakAliveRef <- mkWeakPtr aliveRef Nothing
     let kill = do
@@ -246,7 +254,7 @@ connectBus transport handleCalls handleSignals = do
         slots <- atomically $ do sls <- readTVar answerSlots
                                  writeTVar answerSlots Map.empty
                                  return sls
-        atomically $ writeTVar signalSlots Map.empty
+        atomically $ writeTVar signalSlots []
         atomically $ forM_ (Map.elems slots) $ \s -> s . Left $
                                         [DBV $ DBVString "Connection Closed"]
     mfix $ \conn' -> do
