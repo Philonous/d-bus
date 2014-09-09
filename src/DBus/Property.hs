@@ -118,22 +118,23 @@ propertyChangedSignal prop x =
                           , signalInterface = propertiesInterfaceName
                           , signalMember = "PropertiesChanged"
                           , signalBody =
-                              [ DBV $
-                                toRep ( iface
-                                      , Map.fromList [( name
-                                                      , DBVVariant $ toRep x )]
-                                      , [] :: [Text])]}
+                              [ DBV . toRep $ iface
+                              , DBV . toRep $
+                                  Map.fromList [ ( name , DBVVariant $ toRep x )]
+                              , DBV . toRep $ ( [] :: [Text])
+                              ]}
         -- invalidates or emits changed but is write-only
         PECSInvalidates -> Just $
             Signal { signalPath = path
                    , signalInterface = propertiesInterfaceName
                    , signalMember = "PropertiesChanged"
                    , signalBody =
-                       [ DBV $ toRep
-                         ( iface
-                         , Map.empty :: Map.Map Text (DBusValue (TypeVariant))
-                         , [name]
-                         )]}
+                       [ DBV $ toRep iface
+                       , DBV $ toRep (Map.empty :: Map.Map Text
+                                                      (DBusValue (TypeVariant)))
+                       , DBV $ toRep [name]
+                       ]
+                   }
 
 propertyChanged :: (MonadIO m, Representable a) =>
                    Property (RepType a) -> a -> MethodHandlerT m ()
