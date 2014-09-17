@@ -202,9 +202,8 @@ data SignalDescription a = SignalDescription
                            { signalDPath :: ObjectPath
                            , signalDInterface :: InterfaceName
                            , signalDMember :: MemberName
-                           , signalDArgumentTypes :: Sing (FlattenRepType a)
-                           , signalDArguments :: ResultDescription
-                                                    (ArgParity (FlattenRepType a))
+                           , signalDArgumentTypes :: Sing a
+                           , signalDArguments :: ResultDescription (ArgParity a)
                            } deriving (Typeable)
 
 instance Show (SignalDescription a) where
@@ -243,10 +242,10 @@ mkSignalDescription :: SingI a =>
                        ObjectPath
                     -> InterfaceName
                     -> MemberName
-                    -> ResultDescription (ArgParity (FlattenRepType a))
+                    -> ResultDescription (ArgParity a)
                     -> SignalDescription a
 mkSignalDescription path iface mem args = fix $ \(_ :: SignalDescription a) ->
-    SignalDescription path iface mem (sFlattenRepType (sing :: Sing a))
+    SignalDescription path iface mem (sing :: Sing a)
                       args
 
 type family ArgsOf x :: Parity where

@@ -169,7 +169,7 @@ createSignal desc x = Signal{ signalPath = signalDPath desc
 ----------------------
 
 signal :: (Representable a, Monad m) =>
-          SignalDescription (RepType a)
+          SignalDescription (FlattenRepType (RepType a))
           -> a
           -> MethodHandlerT m ()
 signal desc (x :: a) =
@@ -185,7 +185,7 @@ emitSignal' (SomeSignal s) con = do
     sendBS con $ mkSignal sid [] s
 
 emitSignal :: Representable a =>
-              SignalDescription (RepType a)
+              SignalDescription (FlattenRepType (RepType a))
            -> a
            -> DBusConnection -> IO ()
 emitSignal sigD (x :: a) con =
