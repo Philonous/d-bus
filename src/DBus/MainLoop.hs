@@ -111,12 +111,15 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
                                     , Match sender) . fst)
                              sSlots of
                     handlers@(_:_) ->
-                        let sig = Signal { signalPath = path
-                                         , signalInterface = iface
-                                         , signalMember = member
-                                         , signalBody = body
-                                         }
-                        in forM_ handlers $ \(_, handler) -> handler sig
+                        case listToSomeArguments body of
+                         SDBA as -> let sig = SomeSignal $
+                                                Signal { signalPath = path
+                                                       , signalInterface = iface
+                                                       , signalMember = member
+                                                       , signalBody = as
+                                                       }
+                                    in forM_ handlers $ \(_, handler) ->
+                                                         handler sig
                     _  -> debug $ "Unhandled signal"
                                    ++ show iface ++ "; "
                                    ++ show member ++ "; "
@@ -160,7 +163,7 @@ objectRoot o conn header args | fs <- fields header
                                    , [])
                 Right r -> return r
     serial <- atomically $ dBusCreateSerial conn
-    forM_ sigs $ flip emitSignal conn
+    forM_ sigs $ flip emitSignal' conn
     debug $ "method call returned " ++ show ret
     case ret of
         Left err -> sendBS conn $ errToErrMessage serial err

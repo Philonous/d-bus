@@ -162,12 +162,11 @@ singletons [d|
   flattenRepType t@(TypeDict _ _)  = [t]
   flattenRepType t@(TypeDictEntry _ _)  = [t]
   flattenRepType t@(TypeVariant)  = [t]
-
   |]
 
 -- | A Transformer for (IO) actions that might want to send a signal.
 newtype MethodHandlerT m a =
-    MHT { unMHT :: ExceptT MsgError (WriterT [Signal] m) a}
+    MHT { unMHT :: ExceptT MsgError (WriterT [SomeSignal] m) a}
     deriving ( Functor
              , Applicative
              , Monad
@@ -187,30 +186,97 @@ catchMethodError m f = MHT $ catchError (unMHT m) (unMHT . f)
 instance MonadTrans MethodHandlerT where
     lift = MHT . lift . lift
 
-runMethodHandlerT :: MethodHandlerT m a -> m (Either MsgError a, [Signal])
+runMethodHandlerT :: MethodHandlerT m a -> m (Either MsgError a, [SomeSignal])
 runMethodHandlerT (MHT w) = runWriterT $ runExceptT w
 
-data Signal = Signal { signalPath :: ObjectPath
-                     , signalInterface :: InterfaceName
-                     , signalMember :: MemberName
-                     , signalBody :: [SomeDBusValue]
-                     } deriving (Show)
+data Signal a = Signal { signalPath :: ObjectPath
+                       , signalInterface :: InterfaceName
+                       , signalMember :: MemberName
+                       , signalBody :: DBusArguments a
+                       } deriving (Show)
+
+data SomeSignal where
+    SomeSignal :: SingI a => Signal a -> SomeSignal
+
+data SignalDescription a = SignalDescription
+                           { signalDPath :: ObjectPath
+                           , signalDInterface :: InterfaceName
+                           , signalDMember :: MemberName
+                           , signalDArgumentTypes :: Sing (FlattenRepType a)
+                           , signalDArguments :: ResultDescription
+                                                    (ArgParity (FlattenRepType a))
+                           } deriving (Typeable)
+
+instance Show (SignalDescription a) where
+    show sd = "SignalDescription{ signalDPath = " ++ show (signalDPath sd)
+                            ++ ", signalDInterface = "
+                                ++ show (signalDInterface sd)
+                            ++ ", signalDMember = " ++ show (signalDMember sd)
+                            ++ ", signalDArgumentTypes = "
+                                ++ show (fromSing $ signalDArgumentTypes sd)
+                            ++ ",signalDArguments = "
+                                ++ show (rdToList $ signalDArguments sd)
+                            ++ "}"
+
+instance Eq (SignalDescription a) where
+    x == y = and [ ((==) `on` signalDPath) x y
+                 , ((==) `on` signalDInterface) x y
+                 , ((==) `on` signalDMember) x y
+                 -- argument types are guaranteed to be equal
+                 , rdToList (signalDArguments x) == rdToList (signalDArguments y)
+                 ]
+
+data SomeSignalDescription where
+    SSD :: SingI a => SignalDescription a -> SomeSignalDescription
+    deriving (Typeable)
+
+deriving instance Show SomeSignalDescription
+
+instance Eq SomeSignalDescription where
+    (SSD (x :: SignalDescription a)) == (SSD (y :: SignalDescription b))
+        = case (sing  :: Sing a) %~ (sing :: Sing b) of
+           Proved (Refl{}) -> x == y
+           Disproved{} -> False
+
+-- | Create a signal description. The argument types are inferred, but in order for that to work the type of the result has to be monomorphic (so might need to add an explicit
+mkSignalDescription :: SingI a =>
+                       ObjectPath
+                    -> InterfaceName
+                    -> MemberName
+                    -> ResultDescription (ArgParity (FlattenRepType a))
+                    -> SignalDescription a
+mkSignalDescription path iface mem args = fix $ \(_ :: SignalDescription a) ->
+    SignalDescription path iface mem (sFlattenRepType (sing :: Sing a))
+                      args
 
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
      ArgsOf (MethodHandlerT IO x) = 'Null
      ArgsOf (a -> b) = 'Arg (ArgsOf b)
 
+type family ArgParity (x :: [DBusType]) :: Parity where
+    ArgParity '[] = 'Null
+    ArgParity (x ': xs) = Arg (ArgParity xs)
+
+
+
 infixr 0 :>
 data ResultDescription parity where
     (:>) :: Text -> ResultDescription n -> ResultDescription (Arg n)
     ResultDone :: ResultDescription 'Null
+                  deriving (Typeable)
+
+rdToList :: ResultDescription n -> [Text]
+rdToList ResultDone = []
+rdToList (x :> xs) = x : rdToList xs
+
+instance Show (ResultDescription n) where
+    show res = show $ rdToList res
 
 infixr 0 :->
 data ArgumentDescription parity where
     (:->) :: Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
     Result :: ArgumentDescription 'Null
-
 
 data DBusArguments :: [DBusType] -> * where
     ArgsNil :: DBusArguments '[]
@@ -480,10 +546,6 @@ data MethodWrapper av rv where
     MAsk    :: SingI t => (DBusValue t -> MethodWrapper avs rv )
                        -> MethodWrapper (t ': avs) rv
 
-type family ArgParity (x :: [DBusType]) :: Parity where
-    ArgParity '[] = 'Null
-    ArgParity (x ': xs) = Arg (ArgParity xs)
-
 data Method where
     Method :: (SingI avs, SingI ts) =>
               MethodWrapper avs ts
@@ -528,14 +590,9 @@ data SignalArgument =
                    , signalArgumentType :: DBusType
                    }
 
-data SignalInterface = SignalI { signalName :: Text
-                               , signalArguments :: [SignalArgument]
-                               , signalAnnotations :: [Annotation]
-                               }
-
 data Interface = Interface { interfaceMethods :: [Method]
                            , interfaceAnnotations :: [Annotation]
-                           , interfaceSignals :: [SignalInterface]
+                           , interfaceSignals :: [SomeSignalDescription]
                            , interfaceProperties :: [SomeProperty]
                            }
 
@@ -605,7 +662,7 @@ type SignalSlots = [ (( Match Text
                       , Match Text
                       , Match ObjectPath
                       , Match Text)
-                     , (Signal -> IO ())) ]
+                     , (SomeSignal -> IO ())) ]
 
 data DBusConnection =
     DBusConnection

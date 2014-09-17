@@ -192,6 +192,7 @@ methodCall sid dest path interface member args flags =
                  }
     in serializeMessage header args
 
+mkSignal :: SingI ts => Word32 -> [Flag] -> Signal ts -> BS.Builder
 mkSignal sid flags sig =
     let hFields = emptyHeaderFields { hFPath = Just $ signalPath sig
                                     , hFInterface = Just $ signalInterface sig
@@ -206,7 +207,7 @@ mkSignal sid flags sig =
                  , serial = sid
                  , fields = hFields
                  }
-    in serializeMessage header (signalBody sig)
+    in serializeMessage header (argsToValues . SDBA $ signalBody sig)
 
 
 

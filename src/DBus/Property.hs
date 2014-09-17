@@ -22,6 +22,7 @@ import           DBus.Signal
 import           DBus.Types
 import           DBus.Error
 import           DBus.Message
+import           DBus.Representable
 
 property :: SingI t => Property t -> Objects
 property p = root (propertyPath p)
@@ -106,7 +107,7 @@ propertiesInterfaceName = "org.freedesktop.DBus.Properties"
 propertyChangedSignal :: Representable a =>
                          Property (RepType a)
                       -> a
-                      -> Maybe Signal
+                      -> Maybe SomeSignal
 propertyChangedSignal prop x =
     let path = propertyPath prop
         iface = propertyInterface prop
@@ -114,38 +115,37 @@ propertyChangedSignal prop x =
     in case propertyEmitsChangedSignal prop of
         PECSFalse -> Nothing
         PECSTrue ->
-            Just $ Signal { signalPath = path
-                          , signalInterface = propertiesInterfaceName
-                          , signalMember = "PropertiesChanged"
-                          , signalBody =
-                              [ DBV . toRep $ iface
-                              , DBV . toRep $
-                                  Map.fromList [ ( name , DBVVariant $ toRep x )]
-                              , DBV . toRep $ ( [] :: [Text])
-                              ]}
-        -- invalidates or emits changed but is write-only
-        PECSInvalidates -> Just $
+            Just $ SomeSignal $
             Signal { signalPath = path
                    , signalInterface = propertiesInterfaceName
                    , signalMember = "PropertiesChanged"
-                   , signalBody =
-                       [ DBV $ toRep iface
-                       , DBV $ toRep (Map.empty :: Map.Map Text
-                                                      (DBusValue (TypeVariant)))
-                       , DBV $ toRep [name]
-                       ]
+                   , signalBody = flattenRep $ toRep
+                       ( iface
+                       , Map.fromList [ ( name , DBVVariant $ toRep x )]
+                       , [] :: [Text]
+                       )}
+        -- invalidates or emits changed but is write-only
+        PECSInvalidates -> Just $ SomeSignal $
+            Signal { signalPath = path
+                   , signalInterface = propertiesInterfaceName
+                   , signalMember = "PropertiesChanged"
+                   , signalBody = flattenRep $ toRep
+                       ( iface
+                       , Map.empty :: Map.Map Text (DBusValue (TypeVariant))
+                       , [name]
+                       )
                    }
 
 propertyChanged :: (MonadIO m, Representable a) =>
                    Property (RepType a) -> a -> MethodHandlerT m ()
 propertyChanged prop a =
-    Foldable.mapM_ signal (propertyChangedSignal prop a)
+    Foldable.mapM_ signal' (propertyChangedSignal prop a)
 
 emitPropertyChanged :: Representable a =>
                        Property (RepType a) -> a -> DBusConnection -> IO ()
 emitPropertyChanged prop x con = do
     let mbSig = propertyChangedSignal prop x
-    Foldable.forM_ mbSig $ flip emitSignal con
+    Foldable.forM_ mbSig $ flip emitSignal' con
 
 data RemoteProperty a = RP { rpEntity :: Text
                            , rpObject :: ObjectPath

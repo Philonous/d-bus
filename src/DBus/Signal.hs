@@ -13,6 +13,7 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Monoid
+import           Data.Singletons
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TextL
 import qualified Data.Text.Lazy.Builder as TB
@@ -20,6 +21,8 @@ import qualified Data.Text.Lazy.Builder as TB
 import           DBus.Types
 import           DBus.Message
 import           DBus.MessageBus
+import           DBus.Representable
+
 
 data MatchRule = MatchRule { mrType          :: Maybe MessageType
                            , mrSender        :: Maybe Text.Text
@@ -125,7 +128,7 @@ removeMatch rule = messageBusMethod "RemoveMatch" (renderRule rule)
 -- all incoming matching signals
 addSignalHandler :: MatchSignal
                  -> MatchRule -- Addition Match rules. mempty for none
-                 -> (Signal -> IO ())
+                 -> (SomeSignal -> IO ())
                  -> DBusConnection
                  -> IO ()
 addSignalHandler slot rules m dbc = do
@@ -149,26 +152,49 @@ addSignalHandler slot rules m dbc = do
 -- signals into the TChan
 signalChan :: MatchSignal
            -> DBusConnection
-           -> IO (TChan Signal)
+           -> IO (TChan SomeSignal)
 signalChan match dbc = do
     signalChan <- newTChanIO
     addSignalHandler match mempty (atomically . writeTChan signalChan) dbc
     return signalChan
 
+createSignal desc x = Signal{ signalPath = signalDPath desc
+                            , signalInterface = signalDInterface desc
+                            , signalMember = signalDMember desc
+                            , signalBody = flattenRep $ toRep x
+                            }
+
 ----------------------
 -- Emitting signals --
 ----------------------
 
-signal :: Monad m => Signal -> MethodHandlerT m ()
-signal sig = MHT $ tell [sig]
+signal :: (Representable a, Monad m) =>
+          SignalDescription (RepType a)
+          -> a
+          -> MethodHandlerT m ()
+signal desc (x :: a) =
+    let s = (sing :: Sing (RepType a))
+        fs = sFlattenRepType s
+        in withSingI fs $ signal' (SomeSignal $ createSignal desc x)
 
-emitSignal :: Signal -> DBusConnection -> IO ()
-emitSignal sig con = do
+signal' :: Monad m => SomeSignal -> MethodHandlerT m ()
+signal' sig = MHT $ tell [sig]
+
+emitSignal' (SomeSignal s) con = do
     sid <- atomically $ dBusCreateSerial con
-    sendBS con $ mkSignal sid [] sig
+    sendBS con $ mkSignal sid [] s
+
+emitSignal :: Representable a =>
+              SignalDescription (RepType a)
+           -> a
+           -> DBusConnection -> IO ()
+emitSignal sigD (x :: a) con =
+    let s = (sing :: Sing (RepType a))
+        fs = sFlattenRepType s
+    in withSingI fs $ emitSignal' (SomeSignal $ createSignal sigD x) con
 
 execSignalT :: MethodHandlerT IO a -> DBusConnection -> IO (Either MsgError a)
 execSignalT m con = do
     (x, sigs) <- runMethodHandlerT m
-    forM_ sigs $ flip emitSignal con
+    forM_ sigs $ flip emitSignal' con
     return x

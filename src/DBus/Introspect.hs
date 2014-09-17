@@ -21,6 +21,7 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Monoid (mconcat)
+import           Data.Singletons
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -214,18 +215,24 @@ introspectMethods = map introspectMethod
            ++ zipWith ((\r t -> IArgument r t (Just Out))) rs res
 
 
-introspectSignalArgument a =
-    IArgument { iArgumentName = signalArgumentName a
-              , iArgumentType = signalArgumentType a
+introspectSignalArgument :: DBusType -> Text -> IArgument
+introspectSignalArgument tp name =
+    IArgument { iArgumentName = name
+              , iArgumentType = tp
               , iArgumentDirection = Nothing
               }
 
-introspectSignal s =
-    ISignal { iSignalName = signalName s
-            , iSignalArguments = introspectSignalArgument <$> signalArguments s
-            , iSignalAnnotations = signalAnnotations s
+introspectSignal :: SomeSignalDescription -> ISignal
+introspectSignal (SSD s) =
+    ISignal { iSignalName = signalDMember s
+            , iSignalArguments = zipWith introspectSignalArgument
+                                    (fromSing $ signalDArgumentTypes s)
+                                    (rdToList $ signalDArguments s)
+
+            , iSignalAnnotations = [] -- signalAnnotations s
             }
 
+propertyAccess :: Property t -> PropertyAccess
 propertyAccess Property{propertySet = mbSet, propertyGet = mbGet}
     = case (mbSet, mbGet) of
     (Just{}, Just{}) -> ReadWrite
@@ -234,6 +241,7 @@ propertyAccess Property{propertySet = mbSet, propertyGet = mbGet}
     (Nothing, Nothing) -> error "iPropertyAccess: Both getter and setter are Nothing"
 
 
+introspectProperty :: SomeProperty -> IProperty
 introspectProperty (SomeProperty p) =
     IProperty { iPropertyName = propertyName p
               , iPropertyType = propertyType p
