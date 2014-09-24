@@ -14,12 +14,14 @@ module DBus
 -- * Signals
     , MatchRule(..)
     , Signal(..)
+    , SignalDescription(..)
     , matchAll
     , matchSignal
     , addMatch
     , removeMatch
     , addSignalHandler
     , signalChan
+    , handleSignal
 -- * Representable Types
     , Representable(..)
     , makeRepresentable

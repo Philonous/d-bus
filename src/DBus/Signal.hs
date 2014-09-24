@@ -14,6 +14,9 @@ import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Singletons
+import           Data.Singletons.Decide
+import           Data.Singletons.Prelude.List
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TextL
 import qualified Data.Text.Lazy.Builder as TB
@@ -147,6 +150,54 @@ addSignalHandler slot rules m dbc = do
                  , maybeToMatch $ matchPath s
                  , maybeToMatch $ matchSender s)
 
+
+castSignalBody :: SingI a => SomeSignal -> Maybe (DBusValue a)
+castSignalBody (SomeSignal s) =
+    case (signalBody s) of
+     sr@(r :: DBusArguments ats) ->
+         -- Use fix to access the return type (We only care about the type)
+            fix $ \(_ :: Maybe (DBusValue ret)) ->
+                  case sing :: Sing ret of
+                      STypeStruct ts -> case (r, sing :: Sing ats) of
+                          (ArgsNil, SNil) -> Nothing
+                          (ArgsCons r' ArgsNil, SCons a SNil) ->
+                              case a %~ (sing :: Sing ret) of
+                                  Proved Refl -> Just r'
+                                  Disproved _ -> Nothing
+                          _ -> withSingI ts (DBVStruct <$> maybeArgsToStruct r)
+                      STypeUnit -> case r of
+                          ArgsNil -> Just DBVUnit
+                          _ -> Nothing
+                      _ -> case (sing :: Sing ats, r) of
+                          (SCons at SNil, ArgsCons r' ArgsNil) ->
+                              case at %~ (sing :: Sing ret) of
+                                  Proved Refl -> Just r'
+                                  Disproved _ -> Nothing
+
+
+-- | Add a match rule (computed from the SignalDescription) and install a
+-- handler that tries to convert the Signal's body and passes it to the callback
+handleSignal :: Representable a =>
+                SignalDescription (FlattenRepType (RepType a))
+             -> Maybe Text
+             -> (a -> IO ())
+             -> DBusConnection
+             -> IO ()
+handleSignal desc sender f con = do
+    let mSignal = MatchSignal { matchInterface = Just $ signalDInterface desc
+                              , matchMember = Just $ signalDMember desc
+                              , matchPath = Just $ signalDPath desc
+                              , matchSender = sender
+                              }
+        f' = \s -> case fromRep =<< castSignalBody s of
+                       Nothing -> logWarning $ "Received signal "
+                                             ++ ((\(SomeSignal ss) -> show ss) s)
+                                             ++ " could not be converted to to"
+                                             ++ " type "
+                                             ++ (show . fromSing
+                                                   $ signalDArgumentTypes desc)
+                       Just x -> f x
+    addSignalHandler mSignal mempty f' con
 
 -- | Add a match rule for the given signal specification and put all incoming
 -- signals into the TChan
