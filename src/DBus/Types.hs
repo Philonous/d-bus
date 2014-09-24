@@ -36,7 +36,21 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
 import           Data.Word
+import           System.Log.Logger
 import           Unsafe.Coerce (unsafeCoerce)
+
+dbusLogger :: String
+dbusLogger = "DBus"
+
+logDebug :: String -> IO ()
+logDebug = debugM dbusLogger
+
+logWarning :: String -> IO ()
+logWarning = warningM dbusLogger
+
+logError :: String -> IO ()
+logError = errorM dbusLogger
+
 
 data ObjectPath = ObjectPath { opAbsolute :: Bool
                              , opParts :: [Text]
@@ -197,6 +211,8 @@ data Signal a = Signal { signalPath :: ObjectPath
 
 data SomeSignal where
     SomeSignal :: SingI a => Signal a -> SomeSignal
+
+deriving instance Show SomeSignal
 
 data SignalDescription a = SignalDescription
                            { signalDPath :: ObjectPath

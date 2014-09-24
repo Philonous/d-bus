@@ -57,10 +57,6 @@ import           DBus.Signal
 import           DBus.Property
 import           DBus.Introspect
 
-debug t = do
-    hPutStrLn stderr $ "d-bus debug: " ++ t
-    hFlush stdout
-
 handleMessage :: (MessageHeader -> [SomeDBusValue] -> IO ())
               -> (MessageHeader -> [SomeDBusValue] -> IO a)
               -> TVar AnswerSlots
@@ -71,7 +67,7 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
     case messageType header of
         MessageTypeMethodCall -> do
             let hfs = fields header
-            debug $ "Dispatching method call "
+            logDebug $ "Dispatching method call "
                 ++ show (hFPath hfs)
                 ++ "; " ++ (maybe "" Text.unpack $ hFInterface hfs)
                 ++ "; " ++ (maybe "" Text.unpack $ hFMember hfs)
@@ -120,13 +116,13 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
                                                        }
                                     in forM_ handlers $ \(_, handler) ->
                                                          handler sig
-                    _  -> debug $ "Unhandled signal"
+                    _  -> logDebug $ "Unhandled signal"
                                    ++ show iface ++ "; "
                                    ++ show member ++ "; "
                                    ++ show path ++ "; "
                                    ++ show sender ++ ": "
                                    ++ show body ++ "\n"
-           | otherwise -> debug $ "Signal is missing header fields:"
+           | otherwise -> logDebug $ "Signal is missing header fields:"
                                        ++ show header ++ "; " ++ show body
     match4 (x1, x2, x3, x4) (y1, y2, y3, y4) =
         and $ [ x1 `checkMatch` y1
@@ -164,11 +160,11 @@ objectRoot o conn header args | fs <- fields header
                 Right r -> return r
     serial <- atomically $ dBusCreateSerial conn
     forM_ sigs $ flip emitSignal' conn
-    debug $ "method call returned " ++ show ret
+    logDebug $ "method call returned " ++ show ret
     case ret of
         Left err -> sendBS conn $ errToErrMessage serial err
         Right r -> sendBS conn $ mkReturnMethod serial r
-    debug "done"
+    logDebug "done"
 
   where notUnit (DBV DBVUnit) = False
         notUnit _ = True
