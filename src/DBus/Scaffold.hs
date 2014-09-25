@@ -12,6 +12,8 @@ import           Control.Monad
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Monoid
+import           Data.Singletons
+import           Data.Singletons.Prelude.List
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Language.Haskell.TH
@@ -46,13 +48,16 @@ interfacMethodDescriptions path iface =
        }
   where for = flip map
 
-nodeMethodDescriptions path node =
-    let ifaceMembers = interfacMethodDescriptions path =<< nodeInterfaces node
+mapIInterfaces :: (Text -> IInterface -> [a]) -> Text -> INode -> [a]
+mapIInterfaces f path node =
+    let ifaceMembers = f path =<< nodeInterfaces node
         subNodeMembers = nodeSubnodes node >>= \n  ->
             let subPath = path <> "/" <> nodeName n
-            in nodeMethodDescriptions subPath n
+            in mapIInterfaces f subPath n
     in ifaceMembers ++ subNodeMembers
 
+nodeMethodDescriptions :: Text -> INode -> [MethodDescription]
+nodeMethodDescriptions = mapIInterfaces interfacMethodDescriptions
 
 data PropertyDescription = PD { pdObjectPath :: Text
                               , pdInterface :: Text
@@ -60,6 +65,7 @@ data PropertyDescription = PD { pdObjectPath :: Text
                               , pdType :: DBusType
                               }
 
+interfacPropertyDescriptions :: Text -> IInterface -> [PropertyDescription]
 interfacPropertyDescriptions path iface =
     for (iInterfaceProperties iface) $ \p ->
     PD { pdObjectPath = path
@@ -69,16 +75,13 @@ interfacPropertyDescriptions path iface =
        }
   where for = flip map
 
-nodePropertyDescriptions path node =
-    let ifaceMembers = interfacPropertyDescriptions path =<< nodeInterfaces node
-        subNodeMembers = nodeSubnodes node >>= \n  ->
-            let subPath = path <> "/" <> nodeName n
-            in nodePropertyDescriptions subPath n
-    in ifaceMembers ++ subNodeMembers
+nodePropertyDescriptions :: Text -> INode -> [PropertyDescription]
+nodePropertyDescriptions = mapIInterfaces interfacPropertyDescriptions
 
 liftText t = [|Text.pack $(liftString (Text.unpack  t))|]
 
 
+promotedListT :: [TypeQ] -> TypeQ
 promotedListT = foldr (\t ts -> appT (appT promotedConsT t) ts) promotedNilT
 
 arrows :: [TypeQ] -> TypeQ -> TypeQ
@@ -204,3 +207,52 @@ propertyFromDescription nameGen mbEntity pd = do
         Just e -> valD (varP name) (normalB . rp $ liftText e) []
 
     return [tp, cl]
+
+
+nodeSignals :: Text -> INode -> [SomeSignalDescription]
+nodeSignals = mapIInterfaces interfaceSignalDs
+
+interfaceSignalDs :: Text -> IInterface -> [SomeSignalDescription]
+interfaceSignalDs ndName iface = signalDs (objectPath ndName)
+                                     (iInterfaceName iface)
+                                        <$> iInterfaceSignals iface
+
+
+
+signalDs :: ObjectPath -> Text -> ISignal -> SomeSignalDescription
+signalDs nPath iName iSig =
+     case (toSings (iArgumentType <$> iSignalArguments iSig)) of
+      SomeSing (s :: Sing (ts :: [DBusType])) -> withSingI s $ (SSD
+          (SignalDescription { signalDPath = nPath
+                             , signalDInterface = iName
+                             , signalDMember = iSignalName iSig
+
+                             , signalDArguments = undefined -- toArgDesc $ iSignalArguments iSig
+                             } :: SignalDescription (ts :: [DBusType])
+          ))
+  where
+    toSings :: [DBusType] -> SomeSing ('KProxy :: KProxy [DBusType])
+    toSings [] = SomeSing SNil
+    toSings (t:ts) = case (toSing t, toSings ts) of
+            (SomeSing s, SomeSing ss) -> SomeSing (SCons s ss)
+
+
+liftSignalD :: Name -> SomeSignalDescription -> Q [Dec]
+liftSignalD name ssigDesc@(SSD (sigDesc :: SignalDescription a)) = do
+    let ts = fromSing (sing :: (Sing a))
+        t = [t| SignalDescription $(promotedListT $ promoteDBusType <$> ts)|]
+        e = [| SignalDescription
+                   { signalDPath = $(liftObjectPath $ signalDPath sigDesc)
+                   , signalDInterface = $(liftText $ signalDInterface sigDesc)
+                   , signalDMember = $(liftText $ signalDMember sigDesc)
+                   , signalDArguments = $(liftArgDesc
+                                            $ signalDArguments sigDesc)
+                   } |]
+    tpDecl <- sigD name t
+    decl <- valD (varP name) (normalB e) []
+    return [tpDecl, decl]
+  where
+    liftObjectPath op = [| objectPath $( liftText $ objectPathToText op) |]
+    liftArgDesc :: ResultDescription n -> ExpQ
+    liftArgDesc ResultDone = [|ResultDone|]
+    liftArgDesc (r :> rs)  = [|$(liftText r) :> $(liftArgDesc rs)|]

@@ -194,8 +194,8 @@ handleSignal desc sender f con = do
                                              ++ ((\(SomeSignal ss) -> show ss) s)
                                              ++ " could not be converted to to"
                                              ++ " type "
-                                             ++ (show . fromSing
-                                                   $ signalDArgumentTypes desc)
+                                             -- ++ (show . fromSing
+                                             --       $ (sing :: Sing ts))
                        Just x -> f x
     addSignalHandler mSignal mempty f' con
 

@@ -223,10 +223,10 @@ introspectSignalArgument tp name =
               }
 
 introspectSignal :: SomeSignalDescription -> ISignal
-introspectSignal (SSD s) =
+introspectSignal (SSD (s :: SignalDescription a)) =
     ISignal { iSignalName = signalDMember s
             , iSignalArguments = zipWith introspectSignalArgument
-                                    (fromSing $ signalDArgumentTypes s)
+                                    (fromSing $ (sing :: Sing a))
                                     (rdToList $ signalDArguments s)
 
             , iSignalAnnotations = [] -- signalAnnotations s

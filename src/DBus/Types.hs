@@ -218,20 +218,23 @@ data SignalDescription a = SignalDescription
                            { signalDPath :: ObjectPath
                            , signalDInterface :: InterfaceName
                            , signalDMember :: MemberName
-                           , signalDArgumentTypes :: Sing a
                            , signalDArguments :: ResultDescription (ArgParity a)
                            } deriving (Typeable)
 
-instance Show (SignalDescription a) where
-    show sd = "SignalDescription{ signalDPath = " ++ show (signalDPath sd)
-                            ++ ", signalDInterface = "
-                                ++ show (signalDInterface sd)
-                            ++ ", signalDMember = " ++ show (signalDMember sd)
-                            ++ ", signalDArgumentTypes = "
-                                ++ show (fromSing $ signalDArgumentTypes sd)
-                            ++ ",signalDArguments = "
-                                ++ show (rdToList $ signalDArguments sd)
-                            ++ "}"
+signalDArgumentTypes :: SingI ts => SignalDescription ts -> [DBusType]
+signalDArgumentTypes (_ :: SignalDescription ts) = fromSing (sing :: Sing ts)
+
+instance SingI a => Show (SignalDescription a) where
+    show (sd :: SignalDescription ts)
+        = "SignalDescription{ signalDPath = " ++ show (signalDPath sd)
+          ++ ", signalDInterface = "
+          ++ show (signalDInterface sd)
+          ++ ", signalDMember = " ++ show (signalDMember sd)
+          ++ ", signalDArgumentTypes = "
+          ++ show (fromSing $ (sing :: Sing ts))
+          ++ ",signalDArguments = "
+          ++ show (rdToList $ signalDArguments sd)
+          ++ "}"
 
 instance Eq (SignalDescription a) where
     x == y = and [ ((==) `on` signalDPath) x y
@@ -242,7 +245,8 @@ instance Eq (SignalDescription a) where
                  ]
 
 data SomeSignalDescription where
-    SSD :: SingI a => SignalDescription a -> SomeSignalDescription
+    SSD :: forall (a :: [DBusType]) . SingI a =>
+           SignalDescription a -> SomeSignalDescription
     deriving (Typeable)
 
 deriving instance Show SomeSignalDescription
@@ -261,8 +265,7 @@ mkSignalDescription :: SingI a =>
                     -> ResultDescription (ArgParity a)
                     -> SignalDescription a
 mkSignalDescription path iface mem args = fix $ \(_ :: SignalDescription a) ->
-    SignalDescription path iface mem (sing :: Sing a)
-                      args
+    SignalDescription path iface mem args
 
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
