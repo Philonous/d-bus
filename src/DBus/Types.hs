@@ -257,16 +257,6 @@ instance Eq SomeSignalDescription where
            Proved (Refl{}) -> x == y
            Disproved{} -> False
 
--- | Create a signal description. The argument types are inferred, but in order for that to work the type of the result has to be monomorphic (so might need to add an explicit
-mkSignalDescription :: SingI a =>
-                       ObjectPath
-                    -> InterfaceName
-                    -> MemberName
-                    -> ResultDescription (ArgParity a)
-                    -> SignalDescription a
-mkSignalDescription path iface mem args = fix $ \(_ :: SignalDescription a) ->
-    SignalDescription path iface mem args
-
 type family ArgsOf x :: Parity where
      ArgsOf (IO x) = 'Null
      ArgsOf (MethodHandlerT IO x) = 'Null
@@ -275,8 +265,6 @@ type family ArgsOf x :: Parity where
 type family ArgParity (x :: [DBusType]) :: Parity where
     ArgParity '[] = 'Null
     ArgParity (x ': xs) = Arg (ArgParity xs)
-
-
 
 infixr 0 :>
 data ResultDescription parity where

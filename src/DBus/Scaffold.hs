@@ -221,25 +221,34 @@ interfaceSignalDs ndName iface = signalDs (objectPath ndName)
 
 signalDs :: ObjectPath -> Text -> ISignal -> SomeSignalDescription
 signalDs nPath iName iSig =
-     case (toSings (iArgumentType <$> iSignalArguments iSig)) of
-      SomeSing (s :: Sing (ts :: [DBusType])) -> withSingI s $ (SSD
+     case toSings $ iSignalArguments iSig of
+      SSAD (s :: Sing ts) descs -> withSingI s $ (SSD
           (SignalDescription { signalDPath = nPath
                              , signalDInterface = iName
                              , signalDMember = iSignalName iSig
-
-                             , signalDArguments = undefined -- toArgDesc $ iSignalArguments iSig
+                             , signalDArguments = descs
                              } :: SignalDescription (ts :: [DBusType])
           ))
-  where
-    toSings :: [DBusType] -> SomeSing ('KProxy :: KProxy [DBusType])
-    toSings [] = SomeSing SNil
-    toSings (t:ts) = case (toSing t, toSings ts) of
-            (SomeSing s, SomeSing ss) -> SomeSing (SCons s ss)
+
+data SomeSignalArgumentDescription where
+    SSAD :: Sing (ts :: [DBusType])
+         -> ResultDescription (ArgParity ts)
+         -> SomeSignalArgumentDescription
+
+toSings :: [IArgument] -> SomeSignalArgumentDescription
+toSings [] = SSAD SNil ResultDone
+toSings (iarg : iargs) =
+    let t = iArgumentType iarg
+        desc = iArgumentName iarg
+    in case (toSing t, toSings iargs) of
+            (SomeSing s, SSAD ss descs)
+                -> SSAD (SCons s ss) (desc :> descs)
 
 
-liftSignalD :: Name -> SomeSignalDescription -> Q [Dec]
-liftSignalD name ssigDesc@(SSD (sigDesc :: SignalDescription a)) = do
-    let ts = fromSing (sing :: (Sing a))
+liftSignalD :: String -> SomeSignalDescription -> Q [Dec]
+liftSignalD nameString ssigDesc@(SSD (sigDesc :: SignalDescription a)) = do
+    let name = mkName nameString
+        ts = fromSing (sing :: (Sing a))
         t = [t| SignalDescription $(promotedListT $ promoteDBusType <$> ts)|]
         e = [| SignalDescription
                    { signalDPath = $(liftObjectPath $ signalDPath sigDesc)
