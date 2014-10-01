@@ -103,16 +103,7 @@ methodSignature (Method m _ _ _) = methodWSignature m
 methodName :: Method -> Text.Text
 methodName (Method _ n _ _) = n
 
-argDescToList :: ArgumentDescription ts
-                -> [Text.Text]
-argDescToList (t :-> ts) = t :  argDescToList ts
-argDescToList Result = []
-
-resultDescToList :: ResultDescription t -> [Text.Text]
-resultDescToList ResultDone = []
-resultDescToList (t :> ts) = t : resultDescToList ts
-
-argDescriptions args ress = (argDescToList args, resultDescToList ress)
+argDescriptions args ress = (adToList args, adToList ress)
 
 instance Show Method where
     show m@(Method _ n argDs resDs) =

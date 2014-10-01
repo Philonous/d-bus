@@ -28,8 +28,10 @@ import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
 import qualified Data.Conduit.Text as CT
 import           Data.IORef
+import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Singletons
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
 import           Data.Word
@@ -61,9 +63,11 @@ handleMessage :: (MessageHeader -> [SomeDBusValue] -> IO ())
               -> (MessageHeader -> [SomeDBusValue] -> IO a)
               -> TVar AnswerSlots
               -> TVar SignalSlots
+              -> TVar PropertySlots
               -> (MessageHeader, [SomeDBusValue])
               -> IO ()
-handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = do
+handleMessage handleCall handleSignals answerSlots signalSlots propertySlots
+              (header, body) = do
     case messageType header of
         MessageTypeMethodCall -> do
             let hfs = fields header
@@ -101,12 +105,21 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
            , Just member <- hFMember fs
            , Just path <- hFPath fs
            , Just sender <- hFSender fs
-             -> case filter (match4 ( Match iface
-                                    , Match member
-                                    , Match path
-                                    , Match sender) . fst)
-                             sSlots of
-                    handlers@(_:_) ->
+             -> case (iface, member) of
+                 ( "org.freedesktop.DBus.Properties"
+                  ,"PropertiesChanged")
+                     | [DBV pi, DBV uds, DBV invs] <- body
+                     , Just propIface <- fromRep =<< castDBV pi :: Maybe Text
+                     , Just updates <- fromRep =<< castDBV uds
+                                      :: Maybe (Map Text (DBusValue TypeVariant))
+                     , Just ivs <- (fromRep =<< castDBV invs :: Maybe [Text])
+                       -> handlePropertyUpdates path propIface updates ivs
+                 _ -> case filter (match4 ( Match iface
+                                          , Match member
+                                          , Match path
+                                          , Match sender) . fst)
+                                    sSlots of
+                       handlers@(_:_) ->
                         case listToSomeArguments body of
                          SDBA as -> let sig = SomeSignal $
                                                 Signal { signalPath = path
@@ -116,12 +129,12 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
                                                        }
                                     in forM_ handlers $ \(_, handler) ->
                                                          handler sig
-                    _  -> logDebug $ "Unhandled signal"
-                                   ++ show iface ++ "; "
-                                   ++ show member ++ "; "
-                                   ++ show path ++ "; "
-                                   ++ show sender ++ ": "
-                                   ++ show body ++ "\n"
+                       _ -> logDebug $ "Unhandled signal"
+                                           ++ show path ++ "/ "
+                                           ++ show iface ++ "."
+                                           ++ show member ++ " from "
+                                           ++ show sender ++ ": "
+                                           ++ show body ++ "\n"
            | otherwise -> logDebug $ "Signal is missing header fields:"
                                        ++ show header ++ "; " ++ show body
     match4 (x1, x2, x3, x4) (y1, y2, y3, y4) =
@@ -130,6 +143,20 @@ handleMessage handleCall handleSignals answerSlots signalSlots (header, body) = 
               , x3 `checkMatch` y3
               , x4 `checkMatch` y4
               ]
+    handlePropertyUpdates path iface updates ivs = do
+        pSlots <- readTVarIO propertySlots
+        let items = Map.toList (Just <$> updates)
+                    ++ ((\i -> (i, Nothing)) <$> ivs)
+        forM_ items $ \(member, mbV) ->
+            case Map.lookup (path, iface, member) pSlots of
+                Nothing -> logDebug $ "unexpected property update for "
+                                       ++ show path ++" / "
+                                       ++ Text.unpack iface ++ "."
+                                       ++ Text.unpack member
+                Just hs -> let v = variantToDBV <$> mbV
+                           in forM_ hs $ \h -> forkIO $ h v
+    variantToDBV :: DBusValue TypeVariant -> SomeDBusValue
+    variantToDBV (DBVVariant v) = DBV v
 
 -- | Create a message handler that dispatches matches to the methods in a root
 -- object
@@ -242,6 +269,7 @@ connectBus transport handleCalls handleSignals = do
     lock <- newTMVarIO $ BS.hPutBuilder h
     answerSlots <- newTVarIO (Map.empty :: AnswerSlots)
     signalSlots <- newTVarIO ([] :: SignalSlots)
+    propertySlots <- newTVarIO (Map.empty :: PropertySlots)
     aliveRef <- newTVarIO True
     weakAliveRef <- mkWeakPtr aliveRef Nothing
     let kill = do
@@ -265,12 +293,15 @@ connectBus transport handleCalls handleSignals = do
                       handleMessage (handleCalls conn')
                                     (handleSignals conn')
                                     answerSlots
-                                    signalSlots ))
+                                    signalSlots
+                                    propertySlots
+                     ))
             (\e -> print (e :: Ex.SomeException) >> kill >> Ex.throwIO e)
         addFinalizer aliveRef $ killThread handlerThread
         let conn = DBusConnection { dBusCreateSerial = getSerial
                                   , dBusAnswerSlots = answerSlots
                                   , dbusSignalSlots = signalSlots
+                                  , dbusPropertySlots = propertySlots
                                   , dBusWriteLock = lock
                                   , dBusConnectionName = ""
                                   , connectionAliveRef = aliveRef

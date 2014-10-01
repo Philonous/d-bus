@@ -97,18 +97,13 @@ renderRule mr = Text.concat . TextL.toChunks . TB.toLazyText .
 
 -- | Match a Signal against a rule. The argN, argNPath and arg0namespace
 -- parameter are ignored at the moment
-matchSignal :: MessageHeader -> MatchRule -> Bool
-matchSignal header rule =
-    let fs = fields header
-    in and $ catMaybes
-       [ Just $ messageType header == MessageTypeSignal
-       , (\x -> hFMember fs == Just x ) <$> mrMember rule
-       , (\x -> hFInterface fs == Just x ) <$> mrInterface rule
-       , (\(ns, x) -> case hFPath fs of
-               Nothing -> False
-               Just p -> if ns then isPathPrefix x p
+matchSignal :: Signal a -> MatchRule -> Bool
+matchSignal sig rule = and $ catMaybes
+       [ (\x -> signalMember sig ==  x ) <$> mrMember rule
+       , (\x -> signalInterface sig == x ) <$> mrInterface rule
+       , (\(ns, x) -> let p = (signalPath sig)
+                      in if ns then isPathPrefix x p
                                else x == p) <$> mrPath rule
-       , (\x -> hFDestination fs == Just x) <$> mrDestination rule
        ]
 
 -- | Add a match rule
@@ -127,6 +122,14 @@ removeMatch :: (MonadIO m, MonadThrow m ) =>
 removeMatch rule = messageBusMethod "RemoveMatch" (renderRule rule)
 
 
+matchSignalToMatchRule :: MatchSignal -> MatchRule
+matchSignalToMatchRule ms=
+    matchAll { mrType      = Just MessageTypeSignal
+             , mrInterface = matchInterface ms
+             , mrMember    = matchMember ms
+             , mrPath      = (False,) <$> matchPath ms
+             , mrSender    = matchSender ms
+             }
 -- | Add a match rule for the given signal specification and call function on
 -- all incoming matching signals
 addSignalHandler :: MatchSignal
@@ -134,15 +137,9 @@ addSignalHandler :: MatchSignal
                  -> (SomeSignal -> IO ())
                  -> DBusConnection
                  -> IO ()
-addSignalHandler slot rules m dbc = do
-    atomically $ modifyTVar (dbusSignalSlots dbc) ((fromSlot slot, m):)
-    let rule = rules <>
-                 matchAll { mrType      = Just MessageTypeSignal
-                          , mrInterface = matchInterface slot
-                          , mrMember    = matchMember slot
-                          , mrPath      = (False,) <$> matchPath slot
-                          , mrSender    = matchSender slot
-                          }
+addSignalHandler ms rules m dbc = do
+    atomically $ modifyTVar (dbusSignalSlots dbc) ((fromSlot ms, m):)
+    let rule = rules <> matchSignalToMatchRule ms
     addMatch rule dbc
   where
     fromSlot s = ( maybeToMatch $ matchInterface s
@@ -180,10 +177,11 @@ castSignalBody (SomeSignal s) =
 handleSignal :: Representable a =>
                 SignalDescription (FlattenRepType (RepType a))
              -> Maybe Text
+             -> MatchRule
              -> (a -> IO ())
              -> DBusConnection
              -> IO ()
-handleSignal desc sender f con = do
+handleSignal desc sender rules f con = do
     let mSignal = MatchSignal { matchInterface = Just $ signalDInterface desc
                               , matchMember = Just $ signalDMember desc
                               , matchPath = Just $ signalDPath desc
@@ -197,7 +195,7 @@ handleSignal desc sender f con = do
                                              -- ++ (show . fromSing
                                              --       $ (sing :: Sing ts))
                        Just x -> f x
-    addSignalHandler mSignal mempty f' con
+    addSignalHandler mSignal rules f' con
 
 -- | Add a match rule for the given signal specification and put all incoming
 -- signals into the TChan

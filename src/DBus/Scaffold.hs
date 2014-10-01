@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
@@ -27,25 +28,39 @@ import           DBus.Types
 import           DBus.Property
 
 
-data MethodDescription = MD { methodObjectPath :: Text
-                            , methodInterface :: Text
-                            , methodMember :: Text
-                            , methodArgTypes :: [DBusType]
-                            , methodReturnTypes :: [DBusType]
-                            } deriving (Eq, Show)
+liftObjectPath :: ObjectPath -> ExpQ
+liftObjectPath op = [| objectPath $( liftText $ objectPathToText op) |]
 
+liftArgDesc :: ArgumentDescription n -> ExpQ
+liftArgDesc Done = [|Done|]
+liftArgDesc (r :> rs)  = [|$(liftText r) :> $(liftArgDesc rs)|]
+
+
+toSomeMethodDescription :: Text
+                        -> IInterface
+                        -> IMethod
+                        -> SomeMethodDescription
+toSomeMethodDescription path iface imethod =
+    let iInArgs = filter ((/= Just Out) . iArgumentDirection)
+                         (iMethodArguments imethod)
+        iOutArgs = filter ((== Just Out) . iArgumentDirection)
+                         (iMethodArguments imethod)
+        inArgs = toSings iInArgs
+        outArgs = toSings iOutArgs
+    in case (inArgs, outArgs) of
+        ( SSAD (is :: Sing args) inDescs
+         ,SSAD (os :: Sing rets) outDescs)
+            -> withSingI is $ withSingI os $
+               SMD (MD { methodObjectPath = objectPath path
+                       , methodInterface = iInterfaceName iface
+                       , methodMember = iMethodName imethod
+                       , methodArgs = inDescs
+                       , methodResult = outDescs
+                       } :: MethodDescription args rets)
+
+interfacMethodDescriptions :: Text -> IInterface -> [SomeMethodDescription]
 interfacMethodDescriptions path iface =
-    for (iInterfaceMethods iface) $ \m ->
-    MD { methodObjectPath = path
-       , methodInterface = iInterfaceName iface
-       , methodMember = iMethodName m
-       , methodArgTypes = iArgumentType
-                                <$> filter ((/= Just Out) . iArgumentDirection)
-                                (iMethodArguments m)
-       , methodReturnTypes = iArgumentType
-                             <$> filter ((== Just Out) . iArgumentDirection)
-                             (iMethodArguments m)
-       }
+    for (iInterfaceMethods iface) $ toSomeMethodDescription path iface
   where for = flip map
 
 mapIInterfaces :: (Text -> IInterface -> [a]) -> Text -> INode -> [a]
@@ -56,14 +71,8 @@ mapIInterfaces f path node =
             in mapIInterfaces f subPath n
     in ifaceMembers ++ subNodeMembers
 
-nodeMethodDescriptions :: Text -> INode -> [MethodDescription]
+nodeMethodDescriptions :: Text -> INode -> [SomeMethodDescription]
 nodeMethodDescriptions = mapIInterfaces interfacMethodDescriptions
-
-data PropertyDescription = PD { pdObjectPath :: Text
-                              , pdInterface :: Text
-                              , pdName :: Text
-                              , pdType :: DBusType
-                              }
 
 interfacPropertyDescriptions :: Text -> IInterface -> [PropertyDescription]
 interfacPropertyDescriptions path iface =
@@ -74,6 +83,14 @@ interfacPropertyDescriptions path iface =
        , pdType = iPropertyType p
        }
   where for = flip map
+
+
+-- TODO: This should be completely replaced by RemoteProperty
+data PropertyDescription = PD { pdObjectPath :: Text
+                              , pdInterface :: Text
+                              , pdName :: Text
+                              , pdType :: DBusType
+                              }
 
 nodePropertyDescriptions :: Text -> INode -> [PropertyDescription]
 nodePropertyDescriptions = mapIInterfaces interfacPropertyDescriptions
@@ -115,68 +132,25 @@ readIntrospectXml interfaceFile = do
         Left e -> error $ "Could not parse introspection XML: " ++ show e
         Right r -> return r
 
-methodFunction :: (MethodDescription -> String) -- ^ Generate names from Method
-                                                -- descriptions
-               -> Maybe Text -- ^ Just name to fix the entity, Nothing to leave
-                             -- it as a parameter
-               -> MethodDescription -- ^ The method description to generate a
-                                    -- function from
-               -> Q [Dec]
-methodFunction nameGen mbEntity method = do
-    let name = mkName (nameGen method)
-    conName <- newName "con"
-    argNames <- forM (methodArgTypes method) $ \_ -> newName "x"
-    argTypeNames <- forM (methodArgTypes method) $ \_ -> newName "t"
-    resTypeName <- newName "r"
-    let tyVarBndrs = plainTV <$> (argTypeNames ++ [resTypeName])
-        representables = map (\t -> classP ''Representable [varT t])
-                             (argTypeNames ++ [resTypeName])
-        repTypes = zipWith (\n t -> equalP [t|RepType $(varT n)|] t)
-                       (argTypeNames)
-                       (promoteDBusType <$> methodArgTypes method)
+liftMethodDescription :: String
+                      -> SomeMethodDescription
+                      -> Q [Dec]
+liftMethodDescription name smd = case smd of
+  (SMD (md :: MethodDescription args rets)) -> do
+    let ats = promotedListT . map promoteDBusType $
+                fromSing (sing :: Sing args)
+        rts = promotedListT . map promoteDBusType $
+                fromSing (sing :: Sing rets)
+        md' = [|MD{ methodObjectPath = $(liftObjectPath $ methodObjectPath md)
+                  , methodInterface = $(liftText $ methodInterface md)
+                  , methodMember = $(liftText $ methodMember md)
+                  , methodArgs = $(liftArgDesc $ methodArgs md)
+                  , methodResult = $(liftArgDesc $ methodResult md)
+                  } |]
+    tp <- sigD (mkName name) [t|MethodDescription $(ats) $(rts)|]
+    cl <- valD (varP (mkName name)) (normalB md') []
+    return [tp, cl]
 
-        resType = case methodReturnTypes method of
-            [] -> [t|TypeUnit|]
-            [t] -> promoteDBusType t
-            _ -> let resTypes = promotedListT
-                                  (promoteDBusType <$> methodReturnTypes method)
-                 in [t|TypeStruct $resTypes|]
-        resConstr = (equalP [t|RepType $(varT resTypeName)|]
-                            resType)
-        context = representables ++ repTypes ++ [resConstr]
-        entityType = case mbEntity of
-            Nothing -> [[t|Text|]]
-            Just _ -> []
-    entityName <- newName "entity"
-    let entityVar = case mbEntity of
-            Nothing -> [varP entityName]
-            Just _ -> []
-        entityE = case mbEntity of
-            Just e -> liftText e
-            Nothing -> varE entityName
-        argsE = case argNames of
-                  [n] -> varE n
-                  _ -> tupE (varE <$> argNames)
-    tp <- sigD name (forallT tyVarBndrs (sequence context)
-                     (arrows ( entityType
-                             ++ (varT <$> argTypeNames)
-                             ++ [[t| DBusConnection|]]
-                             )
-                             [t| IO (Either MethodError $(varT resTypeName))|]))
-    fun <- funD name
-        [clause ( entityVar ++ map varP argNames ++ [varP conName])
-            (normalB [|callMethod
-                         $(entityE)
-                         (objectPath $(liftText $ methodObjectPath method))
-                         $(liftText $ methodInterface method)
-                         $(liftText $ methodMember method)
-                         $(argsE)
-                         []
-                         $(varE conName)
-                      |])
-          []
-         ]
-    return [tp, fun]
 
 propertyFromDescription :: (PropertyDescription -> String)
                         -> Maybe Text
@@ -205,7 +179,6 @@ propertyFromDescription nameGen mbEntity pd = do
         Nothing -> funD name [clause [varP entN]
                               (normalB (rp (varE entN))) []]
         Just e -> valD (varP name) (normalB . rp $ liftText e) []
-
     return [tp, cl]
 
 
@@ -230,13 +203,13 @@ signalDs nPath iName iSig =
                              } :: SignalDescription (ts :: [DBusType])
           ))
 
-data SomeSignalArgumentDescription where
+data SomeArgumentDescription where
     SSAD :: Sing (ts :: [DBusType])
-         -> ResultDescription (ArgParity ts)
-         -> SomeSignalArgumentDescription
+         -> ArgumentDescription (ArgParity ts)
+         -> SomeArgumentDescription
 
-toSings :: [IArgument] -> SomeSignalArgumentDescription
-toSings [] = SSAD SNil ResultDone
+toSings :: [IArgument] -> SomeArgumentDescription
+toSings [] = SSAD SNil Done
 toSings (iarg : iargs) =
     let t = iArgumentType iarg
         desc = iArgumentName iarg
@@ -245,8 +218,9 @@ toSings (iarg : iargs) =
                 -> SSAD (SCons s ss) (desc :> descs)
 
 
-liftSignalD :: String -> SomeSignalDescription -> Q [Dec]
-liftSignalD nameString ssigDesc@(SSD (sigDesc :: SignalDescription a)) = do
+liftSignalDescription :: String -> SomeSignalDescription -> Q [Dec]
+liftSignalDescription nameString ssigDesc@(SSD (sigDesc :: SignalDescription a))
+    = do
     let name = mkName nameString
         ts = fromSing (sing :: (Sing a))
         t = [t| SignalDescription $(promotedListT $ promoteDBusType <$> ts)|]
@@ -261,7 +235,3 @@ liftSignalD nameString ssigDesc@(SSD (sigDesc :: SignalDescription a)) = do
     decl <- valD (varP name) (normalB e) []
     return [tpDecl, decl]
   where
-    liftObjectPath op = [| objectPath $( liftText $ objectPathToText op) |]
-    liftArgDesc :: ResultDescription n -> ExpQ
-    liftArgDesc ResultDone = [|ResultDone|]
-    liftArgDesc (r :> rs)  = [|$(liftText r) :> $(liftArgDesc rs)|]

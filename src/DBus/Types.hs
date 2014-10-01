@@ -218,7 +218,7 @@ data SignalDescription a = SignalDescription
                            { signalDPath :: ObjectPath
                            , signalDInterface :: InterfaceName
                            , signalDMember :: MemberName
-                           , signalDArguments :: ResultDescription (ArgParity a)
+                           , signalDArguments :: ArgumentDescription (ArgParity a)
                            } deriving (Typeable)
 
 signalDArgumentTypes :: SingI ts => SignalDescription ts -> [DBusType]
@@ -233,7 +233,7 @@ instance SingI a => Show (SignalDescription a) where
           ++ ", signalDArgumentTypes = "
           ++ show (fromSing $ (sing :: Sing ts))
           ++ ",signalDArguments = "
-          ++ show (rdToList $ signalDArguments sd)
+          ++ show (adToList $ signalDArguments sd)
           ++ "}"
 
 instance Eq (SignalDescription a) where
@@ -241,7 +241,7 @@ instance Eq (SignalDescription a) where
                  , ((==) `on` signalDInterface) x y
                  , ((==) `on` signalDMember) x y
                  -- argument types are guaranteed to be equal
-                 , rdToList (signalDArguments x) == rdToList (signalDArguments y)
+                 , adToList (signalDArguments x) == adToList (signalDArguments y)
                  ]
 
 data SomeSignalDescription where
@@ -267,22 +267,17 @@ type family ArgParity (x :: [DBusType]) :: Parity where
     ArgParity (x ': xs) = Arg (ArgParity xs)
 
 infixr 0 :>
-data ResultDescription parity where
-    (:>) :: Text -> ResultDescription n -> ResultDescription (Arg n)
-    ResultDone :: ResultDescription 'Null
-                  deriving (Typeable)
-
-rdToList :: ResultDescription n -> [Text]
-rdToList ResultDone = []
-rdToList (x :> xs) = x : rdToList xs
-
-instance Show (ResultDescription n) where
-    show res = show $ rdToList res
-
-infixr 0 :->
 data ArgumentDescription parity where
-    (:->) :: Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
-    Result :: ArgumentDescription 'Null
+    (:>) :: Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
+    Done :: ArgumentDescription 'Null
+            deriving (Typeable)
+
+adToList :: ArgumentDescription n -> [Text]
+adToList Done = []
+adToList (x :> xs) = x : adToList xs
+
+instance Show (ArgumentDescription n) where
+    show res = show $ adToList res
 
 data DBusArguments :: [DBusType] -> * where
     ArgsNil :: DBusArguments '[]
@@ -557,7 +552,7 @@ data Method where
               MethodWrapper avs ts
            -> Text
            -> ArgumentDescription (ArgParity avs)
-           -> ResultDescription   (ArgParity ts)
+           -> ArgumentDescription   (ArgParity ts)
            -> Method
 
 data PropertyAccess = Read
@@ -585,6 +580,13 @@ data SomeProperty where
 
 propertyType :: SingI t => Property t -> DBusType
 propertyType (_ :: Property t) = fromSing (sing :: Sing t)
+
+data RemoteProperty a = RP { rpEntity :: Text
+                           , rpObject :: ObjectPath
+                           , rpInterface :: Text
+                           , rpName :: Text
+                           } deriving (Show, Eq)
+
 
 data Annotation = Annotation { annotationName :: Text
                              , annotationValue :: Text
@@ -670,12 +672,38 @@ type SignalSlots = [ (( Match Text
                       , Match Text)
                      , (SomeSignal -> IO ())) ]
 
+type PropertySlots = Map ( ObjectPath
+                         , Text -- Interface
+                         , Text -- Member
+                         )
+                         [Maybe SomeDBusValue -> IO ()]
+
+
 data DBusConnection =
     DBusConnection
         { dBusCreateSerial :: STM Serial
         , dBusAnswerSlots :: TVar AnswerSlots
         , dbusSignalSlots :: TVar SignalSlots
+        , dbusPropertySlots :: TVar PropertySlots
         , dBusWriteLock :: TMVar (BS.Builder -> IO ())
         , dBusConnectionName :: Text
         , connectionAliveRef :: TVar Bool
         }
+
+data MethodDescription args rets where
+    MD ::
+        { methodObjectPath :: ObjectPath
+        , methodInterface :: Text
+        , methodMember :: Text
+        , methodArgs :: ArgumentDescription (ArgParity args)
+        , methodResult :: ArgumentDescription (ArgParity rets)
+        } -> MethodDescription args rets
+
+data SomeMethodDescription where
+    SMD :: (SingI args, SingI rets) => MethodDescription args rets
+           -> SomeMethodDescription
+
+instance Show (MethodDescription args rets) where
+    show md = "Method " ++ show (methodObjectPath md)
+              ++ " / " ++ Text.unpack (methodInterface md)
+              ++ "." ++ Text.unpack (methodMember md)

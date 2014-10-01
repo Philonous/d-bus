@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -323,9 +324,40 @@ callMethod' dest path interface member args flags conn = do
         atomically $ modifyTVar (dBusAnswerSlots conn)
                                              (Map.delete s)
 
--- | Wait for the answer of a method call
-getAnswer :: IO (STM b) -> IO b
-getAnswer = (atomically =<<)
+toArgs :: Representable args => args -> [SomeDBusValue]
+toArgs (arg :: args) =
+    let sng = sing :: Sing (RepType args)
+        flsng = sFlattenRepType sng
+    in withSingI flsng $ argsToValues $ SDBA (flattenRep arg)
+
+-- | Try to convert the response to a method call top Haskell types
+fromResponse :: Representable a =>
+                Either [SomeDBusValue] [SomeDBusValue]
+             -> Either MethodError a
+fromResponse (Left e) = Left $ MethodErrorMessage e
+fromResponse (Right rvs) =
+    case listToSomeArguments rvs of
+        sr@(SDBA (r :: DBusArguments ats)) ->
+            maybe (Left $ MethodSignatureMissmatch rvs) Right
+            -- Use fix to access the return type (We only care about the type)
+            $ fix $ \(_ :: Maybe ret) ->
+            case sing :: Sing (RepType ret) of
+                STypeStruct ts -> case (r, sing :: Sing ats) of
+                    (ArgsNil, SNil) -> Nothing
+                    (ArgsCons r' ArgsNil, SCons a SNil) ->
+                        case a %~ (sing :: Sing (RepType ret)) of
+                            Proved Refl -> fromRep r'
+                            Disproved _ -> Nothing
+                    _ -> withSingI ts
+                           $ fromRep . DBVStruct =<< maybeArgsToStruct r
+                STypeUnit -> case r of
+                    ArgsNil -> fromRep DBVUnit
+                    _ -> Nothing
+                _ -> case (sing :: Sing ats, r) of
+                    (SCons at SNil, ArgsCons r' ArgsNil) ->
+                        case at %~ (sing :: Sing (RepType ret)) of
+                            Proved Refl -> fromRep r'
+                            Disproved _ -> Nothing
 
 -- | Synchronously call a method.
 --
@@ -369,28 +401,28 @@ callMethod dest path interface member (arg :: args) flags conn = do
     let sng = sing :: Sing (RepType args)
         flsng = sFlattenRepType sng
         args' = withSingI flsng $ argsToValues $ SDBA (flattenRep arg)
-    ret <- getAnswer $ callMethod' dest path interface member args' flags conn
-    return $ case ret of
-        Left e -> Left $ MethodErrorMessage e
-        Right rvs -> case listToSomeArguments rvs of
-            sr@(SDBA (r :: DBusArguments ats)) ->
-                maybe (Left $ MethodSignatureMissmatch rvs) Right
-                -- Use fix to access the return type (We only care about the type)
-                $ fix $ \(_ :: Maybe ret) ->
-                case sing :: Sing (RepType ret) of
-                    STypeStruct ts -> case (r, sing :: Sing ats) of
-                        (ArgsNil, SNil) -> Nothing
-                        (ArgsCons r' ArgsNil, SCons a SNil) ->
-                            case a %~ (sing :: Sing (RepType ret)) of
-                                Proved Refl -> fromRep r'
-                                Disproved _ -> Nothing
-                        _ -> withSingI ts
-                               $ fromRep . DBVStruct =<< maybeArgsToStruct r
-                    STypeUnit -> case r of
-                        ArgsNil -> fromRep DBVUnit
-                        _ -> Nothing
-                    _ -> case (sing :: Sing ats, r) of
-                        (SCons at SNil, ArgsCons r' ArgsNil) ->
-                            case at %~ (sing :: Sing (RepType ret)) of
-                                Proved Refl -> fromRep r'
-                                Disproved _ -> Nothing
+    ret <- callMethod' dest path interface member args' flags conn
+    fromResponse <$> atomically ret
+
+callAsync :: (Representable args, Representable ret) =>
+        MethodDescription (FlattenRepType (RepType args))
+                          (FlattenRepType (RepType ret))
+     -> Text.Text
+     -> args
+     -> [Flag]
+     -> DBusConnection
+     -> IO (STM (Either MethodError ret))
+callAsync md dest args flags con = do
+    res <- callMethod' dest (methodObjectPath md) (methodInterface md)
+               (methodMember md) (toArgs args) flags con
+    return $ fromResponse <$> res
+
+call :: (Representable ret, Representable args) =>
+        MethodDescription (FlattenRepType (RepType args))
+                          (FlattenRepType (RepType ret))
+     -> Text.Text
+     -> args
+     -> [Flag]
+     -> DBusConnection
+     -> IO (Either MethodError ret)
+call md dest args flags con = atomically =<< callAsync md dest args flags con

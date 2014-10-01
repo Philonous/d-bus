@@ -1,7 +1,8 @@
 module DBus
     (
 -- * Connection management
-      ConnectionType(..)
+      DBusConnection
+    , ConnectionType(..)
     , connectBus
     , makeServer
     , MethodCallHandler
@@ -15,6 +16,7 @@ module DBus
     , MatchRule(..)
     , Signal(..)
     , SignalDescription(..)
+    , SomeSignalDescription(..)
     , matchAll
     , matchSignal
     , addMatch
@@ -24,6 +26,7 @@ module DBus
     , handleSignal
 -- * Representable Types
     , Representable(..)
+    , FlattenRepType
     , makeRepresentable
     , makeRepresentableTuple
 -- * DBus specific types
@@ -53,16 +56,27 @@ module DBus
     , Method(..)
     , MethodWrapper(..)
     , ArgumentDescription(..)
-    , ResultDescription(..)
     , repMethod
     , callMethod
     , callMethod'
+    , call
+    , callAsync
+    , fromResponse
     , MsgError(..)
+    , MethodError(..)
     , MethodHandlerT(..)
+    , MethodDescription(..)
+    , SomeMethodDescription(..)
 -- * Properties
     , Property (..)
     , SomeProperty(..)
     , PropertyEmitsChangedSignal(..)
+    , RemoteProperty(..)
+    , propertyChanged
+    , emitPropertyChanged
+    , getProperty
+    , setProperty
+    , handlePropertyChanged
     , mkProperty
     , mkTVarProperty
 -- * Introspection

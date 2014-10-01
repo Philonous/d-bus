@@ -227,7 +227,7 @@ introspectSignal (SSD (s :: SignalDescription a)) =
     ISignal { iSignalName = signalDMember s
             , iSignalArguments = zipWith introspectSignalArgument
                                     (fromSing $ (sing :: Sing a))
-                                    (rdToList $ signalDArguments s)
+                                    (adToList $ signalDArguments s)
 
             , iSignalAnnotations = [] -- signalAnnotations s
             }
@@ -412,8 +412,8 @@ introspectMethod :: ObjectPath -> Bool -> Objects -> Method
 introspectMethod path recursive object =
     Method (repMethod $ (return (introspect path recursive object) :: IO Text))
            "Introspect"
-           Result
-           ("xml_data" :> ResultDone)
+           Done
+           ("xml_data" :> Done)
 
 
 introspectableInterface path recursive o =

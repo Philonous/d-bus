@@ -31,6 +31,7 @@ property p = root (propertyPath p)
 
 
 
+
 -- | Create a property from a getter and a setter. It will emit a
 -- PropertyChanged signal when the setter is called. To change
 -- this behaviour modify the propertyEmitsChangedSignal field
@@ -147,14 +148,8 @@ emitPropertyChanged prop x con = do
     let mbSig = propertyChangedSignal prop x
     Foldable.forM_ mbSig $ flip emitSignal' con
 
-data RemoteProperty a = RP { rpEntity :: Text
-                           , rpObject :: ObjectPath
-                           , rpInterface :: Text
-                           , rpName :: Text
-                           } deriving (Show, Eq)
-
 getProperty :: Representable a =>
-               RemoteProperty a
+               RemoteProperty (RepType a)
             -> DBusConnection
             -> IO (Either MethodError a)
 getProperty rp con = do
@@ -166,8 +161,6 @@ getProperty rp con = do
         Nothing -> Left $ MethodSignatureMissmatch [DBV v]
         Just x -> Right x
 
-
-
 setProperty :: Representable a =>
                RemoteProperty a
             -> a
@@ -176,3 +169,27 @@ setProperty :: Representable a =>
 setProperty rp x con = do
      callMethod (rpEntity rp) (rpObject rp) propertiesInterfaceName "Set"
                 (rpInterface rp , rpName rp, DBVVariant $ toRep x) [] con
+
+handlePropertyChanged :: Representable a =>
+                         RemoteProperty (RepType a)
+                      -> (Maybe a -> IO ())
+                      -> DBusConnection
+                      -> IO ()
+handlePropertyChanged rp f' con = do
+    let ms = anySignal { matchInterface = Just $ propertiesInterfaceName
+                       , matchMember = Just "PropertiesChanged"
+                       , matchPath = Just $ rpObject rp
+                       , matchSender = Just $ rpEntity rp
+                       }
+        mr = (matchSignalToMatchRule ms)
+               <> matchAll {mrArgs = [(0, propertiesInterfaceName)]}
+        f Nothing = f' Nothing
+        f (Just sdbv) = case fromRep =<< dbusValue sdbv of
+                Nothing -> logError $ "Property type error "
+                           ++ show (rpObject rp) ++ " / "
+                           ++ Text.unpack (rpInterface rp)
+                           ++ "." ++ Text.unpack (rpName rp)
+                Just v -> f' (Just v)
+        slot = Map.singleton (rpObject rp, rpInterface rp, rpName rp) [f]
+    atomically $ modifyTVar' (dbusPropertySlots con) (Map.unionWith (++) slot)
+    addMatch mr con
