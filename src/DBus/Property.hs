@@ -162,7 +162,7 @@ getProperty rp con = do
         Just x -> Right x
 
 setProperty :: Representable a =>
-               RemoteProperty a
+               RemoteProperty (RepType a)
             -> a
             -> DBusConnection
             -> IO (Either MethodError ())

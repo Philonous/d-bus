@@ -171,10 +171,7 @@ propertyFromDescription nameGen mbEntity pd = do
             Nothing -> [[t|Text|]]
             Just _ -> []
         t = promoteDBusType $ pdType pd
-    tp <- sigD name $ forallT [plainTV typeName]
-                        (sequence [ classP ''Representable [varT typeName]
-                                  , equalP [t|RepType $(varT typeName)|] t ])
-                        (arrows arg [t|RemoteProperty $(varT typeName)|])
+    tp <- sigD name $ (arrows arg [t|RemoteProperty $(t)|])
     cl <- case mbEntity of
         Nothing -> funD name [clause [varP entN]
                               (normalB (rp (varE entN))) []]
