@@ -200,6 +200,18 @@ catchMethodError m f = MHT $ catchError (unMHT m) (unMHT . f)
 instance MonadTrans MethodHandlerT where
     lift = MHT . lift . lift
 
+instance (Functor m, Monad m) => Alternative (MethodHandlerT m) where
+    empty = mzero
+    (<|>) = mplus
+
+instance Monad m => MonadPlus (MethodHandlerT m) where
+    mzero = methodError (MsgError "org.freedesktop.DBus.Error.Failed" Nothing [])
+    mplus (MHT m) (MHT n) = MHT . ExceptT $ do
+        res <- runExceptT m
+        case res of
+         Left e -> runExceptT n
+         Right r -> return $ Right r
+
 runMethodHandlerT :: MethodHandlerT m a -> m (Either MsgError a, [SomeSignal])
 runMethodHandlerT (MHT w) = runWriterT $ runExceptT w
 
