@@ -111,7 +111,10 @@ addMatch :: (MonadIO m, MonadThrow m ) =>
             MatchRule
          -> DBusConnection
          -> m ()
-addMatch rule = messageBusMethod "AddMatch" (renderRule rule)
+addMatch rule con = do
+    let renderedRule = (renderRule rule)
+    liftIO . logDebug $ "adding signal match rule: " ++ show renderedRule
+    messageBusMethod "AddMatch" renderedRule con
 
 
 -- | Remove a match rule
@@ -231,6 +234,7 @@ signal' sig = MHT $ tell [sig]
 
 emitSignal' (SomeSignal s) con = do
     sid <- atomically $ dBusCreateSerial con
+    logDebug $ "Emitting signal (ID = " ++ show sid ++ "): " ++ show s
     sendBS con $ mkSignal sid [] s
 
 emitSignal :: Representable a =>

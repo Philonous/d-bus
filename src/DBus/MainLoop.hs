@@ -153,8 +153,11 @@ handleMessage handleCall handleSignals answerSlots signalSlots propertySlots
                                        ++ show path ++" / "
                                        ++ Text.unpack iface ++ "."
                                        ++ Text.unpack member
-                Just hs -> let v = variantToDBV <$> mbV
-                           in forM_ hs $ \h -> forkIO $ h v
+                Just hs -> do
+                    let v = variantToDBV <$> mbV
+                    logDebug $ "Recevied property updates " ++ show updates
+                               ++ " and invalidated propertied " ++ show ivs
+                    forM_ hs $ \h -> forkIO $ h v
     variantToDBV :: DBusValue TypeVariant -> SomeDBusValue
     variantToDBV (DBVVariant v) = DBV v
 

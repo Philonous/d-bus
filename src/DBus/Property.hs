@@ -182,7 +182,7 @@ handlePropertyChanged rp f' con = do
                        , matchSender = Just $ rpEntity rp
                        }
         mr = (matchSignalToMatchRule ms)
-               <> matchAll {mrArgs = [(0, propertiesInterfaceName)]}
+               <> matchAll {mrArgs = [(0, rpInterface rp)]}
         f Nothing = f' Nothing
         f (Just sdbv) = case fromRep =<< dbusValue sdbv of
                 Nothing -> logError $ "Property type error "
