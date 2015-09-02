@@ -276,17 +276,17 @@ connectBus transport handleCalls handleSignals = do
     aliveRef <- newTVarIO True
     weakAliveRef <- mkWeakPtr aliveRef Nothing
     let kill = do
-        mbRef <- deRefWeak weakAliveRef
-        case mbRef of
-             Nothing -> return ()
-             Just ref -> atomically $ writeTVar ref False
-        hClose h
-        slots <- atomically $ do sls <- readTVar answerSlots
-                                 writeTVar answerSlots Map.empty
-                                 return sls
-        atomically $ writeTVar signalSlots []
-        atomically $ forM_ (Map.elems slots) $ \s -> s . Left $
-                                        [DBV $ DBVString "Connection Closed"]
+            mbRef <- deRefWeak weakAliveRef
+            case mbRef of
+                 Nothing -> return ()
+                 Just ref -> atomically $ writeTVar ref False
+            hClose h
+            slots <- atomically $ do sls <- readTVar answerSlots
+                                     writeTVar answerSlots Map.empty
+                                     return sls
+            atomically $ writeTVar signalSlots []
+            atomically $ forM_ (Map.elems slots) $ \s -> s . Left $
+                                            [DBV $ DBVString "Connection Closed"]
     mfix $ \conn' -> do
         debugM "DBus" $ "Forking"
         handlerThread <- forkIO $ Ex.catch (do
