@@ -15,6 +15,7 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
+import           Control.Monad.Catch
 import           Control.Monad.Except
 import           Control.Monad.Trans
 import           Control.Monad.Writer.Strict
@@ -185,6 +186,8 @@ newtype MethodHandlerT m a =
              , Applicative
              , Monad
              , MonadIO
+             , MonadThrow
+             , MonadCatch
              )
 
 methodError :: Monad m => MsgError -> MethodHandlerT m a
