@@ -193,3 +193,24 @@ handlePropertyChanged rp f' con = do
         slot = Map.singleton (rpObject rp, rpInterface rp, rpName rp) [f]
     atomically $ modifyTVar' (dbusPropertySlots con) (Map.unionWith (++) slot)
     addMatch mr con
+
+propertyToTVar :: Representable a =>
+                  RemoteProperty (RepType a)
+               -> DBusConnection
+               -> IO (TVar a)
+propertyToTVar rp con = do
+    eiv <- getProperty rp con
+    case eiv of
+     Left e -> Ex.throwIO e
+     Right iv -> do
+        tv <- newTVarIO iv
+        handlePropertyChanged rp
+            (\mbv -> case mbv of
+                      Nothing -> do
+                          eniv <- getProperty rp con
+                          case eniv of
+                           Left e -> return () -- @TODO
+                           Right nv -> atomically $ writeTVar tv nv
+                      Just v -> atomically $ writeTVar tv v
+            ) con
+        return tv

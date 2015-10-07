@@ -210,6 +210,17 @@ signalChan match dbc = do
     addSignalHandler match mempty (atomically . writeTChan signalChan) dbc
     return signalChan
 
+signalChan' :: Representable a =>
+               SignalDescription (FlattenRepType (RepType a))
+            -> Maybe Text
+            -> MatchRule
+            -> DBusConnection
+            -> IO (TChan a)
+signalChan' desc sender rules con = do
+    signalChan <- newTChanIO
+    handleSignal desc sender rules (atomically . writeTChan signalChan) con
+    return signalChan
+
 createSignal desc x = Signal{ signalPath = signalDPath desc
                             , signalInterface = signalDInterface desc
                             , signalMember = signalDMember desc
