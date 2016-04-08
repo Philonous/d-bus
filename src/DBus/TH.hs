@@ -55,6 +55,33 @@ relevantTyVars constrs = concatMap tyVars constrs
     tyVar (VarT n) = [n]
     tyVar _ = []
 
+-- | Create a 'Representable' instance for a type.
+--
+-- The strategy used to marshal types depends on the shape of your type:
+--
+-- * If none of the constructor(s) have fields, the type is represented by a
+--   @Byte@ where the n-th constructor (counting from 0) is marshalled to n
+--
+-- * If the type has a single constructor with exactly one field, is is
+--   represented by the 'RepType' of it's field. (This is always the case for
+--   @newtypes@)
+--
+-- * If the type has a single constructor with multiple fields, it is
+--   represented by a @Struct@ (consisting of the translated members)
+--
+-- * In the general case with multiple constructors with varying numbers of
+--   fields , the type is represented by a pair (2-element struct) of a @Byte@
+--   (tag) and a @Variant@. The n-th constructor (counting from 0) is
+--   represented by the tag n and contents of the @Variant@ depends on the
+--   number of members:
+--
+-- * For constructors without members, a single @Byte@ with the value 0 is
+--   stored (The value of the Byte is ignored when unmarshalling)
+--
+-- * For constructors with a single member, the translated member is stored as-is
+--
+-- * For constructors with multiple members, the translated members are stored in a
+--  @Struct@
 makeRepresentable name = do
     TyConI t <- reify name
     let (numTyParams, tyVarNames, cons) = case t of
@@ -169,6 +196,10 @@ makeRepresentable name = do
                )
 
 -- TODO: Fold into makeRepresentable
+
+-- | Create a 'Representable' instance for a Tuple. The tuple will be
+-- represented by a @Struct@. Instances for Tuples up to length 20 are already
+-- provided
 makeRepresentableTuple :: Int -> Q Dec
 makeRepresentableTuple num = do
     let names = take num $ map (varT . mkName . (:[])) ['a' .. 'z']

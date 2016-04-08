@@ -93,7 +93,7 @@ data IInterface = IInterface { iInterfaceName :: Text
                              , iInterfaceAnnotations :: [Annotation]
                              } deriving (Eq, Show, Data, Typeable)
 
-data INode = INode { nodeName :: Text
+data INode = INode { nodeName :: Maybe Text
                    , nodeInterfaces :: [IInterface]
                    , nodeSubnodes :: [INode]
                    } deriving (Eq, Show, Data, Typeable)
@@ -167,7 +167,7 @@ xpNode :: PU [Node] INode
 xpNode = xpWrap (\(name, (is, ns)) -> INode name is ns)
                 (\(INode name is ns) -> (name, (is, ns))) $
             xpElem "node"
-                (xpAttribute "name" xpText)
+                (xpAttribute' "name" xpText)
                 (xp2Tuple (xpFindMatches xpInterface)
                           (xpFindMatches xpNode))
 
@@ -177,10 +177,6 @@ xmlToNode xml = case sourceList [xml] $= parseBytesPos def $$ fromEvents of
     Right d -> case unpickle (xpRoot . xpUnliftElems $ xpNode) $ documentRoot d of
         Left e -> Left $ Text.pack (ppUnpickleError e)
         Right r -> Right r
-
-
-
-
 
 pubID :: ExternalID
 pubID = PublicID "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
@@ -359,7 +355,7 @@ introspectObject :: Bool
                  -> Map ObjectPath Object
                  -> INode
 introspectObject recurse path (Object ifaces) sub
-    = INode { nodeName = objectPathToText path
+    = INode { nodeName = Just $ objectPathToText path
             , nodeInterfaces =
                 let propIface = if hasInterface propertiesInterfaceName ifaces
                                 then []
@@ -377,7 +373,7 @@ introspectObject recurse path (Object ifaces) sub
             , nodeSubnodes = (if recurse
                               then (uncurry3 $ introspectObject True)
                               else \(n, _, _) ->
-                                INode { nodeName = objectPathToText n
+                                INode { nodeName = Just $ objectPathToText n
                                       , nodeInterfaces = []
                                       , nodeSubnodes = []
                                       })
@@ -393,7 +389,7 @@ introspectObjects path recursive objs@(Objects os) =
     case Map.updateLookupWithKey (\_ _ -> Nothing) path os of
            (Nothing, _) ->
                let oss = Map.mapKeys (fromMaybe "" . stripObjectPrefix path) os
-               in INode { nodeName = objectPathToText path
+               in INode { nodeName = Just $ objectPathToText path
                         , nodeInterfaces = []
                         , nodeSubnodes =
                             uncurry3 (introspectObject recursive )

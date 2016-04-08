@@ -77,6 +77,22 @@ library
                     , ScopedTypeVariables
                     , TypeFamilies
 
+executable dbus-introspect
+  hs-source-dirs:    dbus-introspect
+  main-is:           Main.hs
+  build-depends:     base
+                   , d-bus
+                   , text
+  default-language:  Haskell2010
+
+executable liferea-example
+  hs-source-dirs:    liferea-example
+  main-is:           Main.hs
+  build-depends:     base
+                   , d-bus
+                   , text
+  default-language:  Haskell2010
+
 test-suite unittests
   type:              exitcode-stdio-1.0
   hs-source-dirs:    tests
@@ -95,6 +111,8 @@ test-suite unittests
                    , text
                    , xml-hamlet
   default-language:   Haskell2010
+
+
 
 -- test-suite integrationtest
 --   type:              exitcode-stdio-1.0

@@ -3,8 +3,9 @@ module DBus
 -- * Connection management
       DBusConnection
     , ConnectionType(..)
-    , connectBus
+    , connectClient
     , makeServer
+    , connectBus
     , MethodCallHandler
     , SignalHandler
     , checkAlive
@@ -30,6 +31,12 @@ module DBus
     , makeRepresentable
     , makeRepresentableTuple
 -- * DBus specific types
+-- ** DBus Types
+-- $Types
+    , DBusSimpleType(..)
+    , DBusType(..)
+    , Signature(..)
+    , typeOf
 -- ** DBus Values
     , DBusValue(..)
     , castDBV
@@ -37,11 +44,6 @@ module DBus
     , SomeDBusValue(..)
     , dbusValue
     , fromVariant
--- ** Signature
-    , DBusSimpleType(..)
-    , DBusType(..)
-    , Signature(..)
-    , typeOf
 -- ** Objects
     , Object(..)
     , Interface(..)
@@ -96,9 +98,20 @@ module DBus
     , getConnectionUnixUser
     , getConnectionProcessID
     , getID
+-- * Scaffolding
+    , module DBus.Scaffold
 -- * Re-exports
     , def
     ) where
+
+-- $types
+--
+-- DBus has it's own type system, described here
+-- <https://dbus.freedesktop.org/doc/dbus-specification.html#type-system>
+--
+-- Types are divided into basic types, represented in this library by
+-- 'DBusSimpleType', and composite types, represented by 'DBusType'. Only simple
+-- types can be the keys in a dictionary
 
 import DBus.Introspect
 import DBus.MainLoop
@@ -110,7 +123,12 @@ import DBus.Method
 import DBus.Signal
 import DBus.TH
 import DBus.Types
+import DBus.Scaffold
 import Data.Default (def)
 
 -- | Ignore all incoming messages/signals
 ignore _ _ _ = return ()
+
+-- | Connect to a message bus as a client
+connectClient :: ConnectionType -> IO DBusConnection
+connectClient bus = connectBus bus ignore ignore

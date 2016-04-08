@@ -204,7 +204,7 @@ objectRoot _ _ _ _ = return ()
 checkAlive :: DBusConnection -> IO Bool
 checkAlive conn = atomically $ readTVar (connectionAliveRef conn)
 
--- | Wait until connection is closed
+-- | Wait until connection is closed. The intended use is to keep alive servers
 waitFor :: DBusConnection -> IO ()
 waitFor conn = atomically $ do
     alive <- readTVar (connectionAliveRef conn)
@@ -222,7 +222,9 @@ data ConnectionType = System -- ^ The well-known system bus. First
                               -- DBUS_SESSION_BUS_ADDRESS
                     | Address String -- ^ The bus at the give addresss
 
-type MethodCallHandler = ( DBusConnection
+type MethodCallHandler = ( DBusConnection -- ^ Connection that the call was
+                                          -- received from. Should be used to
+                                          -- return the result or error
                            -> MessageHeader
                            -> [SomeDBusValue]
                            -> IO ())
@@ -232,7 +234,11 @@ type SignalHandler = ( DBusConnection
                        -> [SomeDBusValue]
                        -> IO ())
 
--- | Create a new connection to a message bus
+-- | General way to connect to a message bus. Takes two callback functions:
+--
+-- * A 'MethodCallHandler' that is invoked when a method call is received.
+--
+-- * A SignalHandler that is invoked when a Mesage is received:
 connectBus :: ConnectionType -- ^ Bus to connect to
            -> MethodCallHandler -- ^ Handler for incoming method calls
            -> SignalHandler  -- ^ Handler for incoming signals
@@ -314,6 +320,7 @@ connectBus transport handleCalls handleSignals = do
         debugM "DBus" $ "Done"
         return conn{dBusConnectionName = connName}
 
+-- | Create a simple server that exports @Objects@ and ignores all incoming signals
 makeServer :: ConnectionType -> Objects -> IO DBusConnection
 makeServer transport objs = do
     connectBus transport (objectRoot (addIntrospectable objs))

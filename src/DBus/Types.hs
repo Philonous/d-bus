@@ -105,7 +105,8 @@ isRoot _ = False
 isEmpty (ObjectPath False p) = null p
 isEmpty _ = False
 
--- | Types that are not composite. These can be the keys of a Dict
+-- | Types that are not composite. These can be the keys of a Dict. Most of them
+-- should be self-explanatory
 data DBusSimpleType
     = TypeByte
     | TypeBoolean
@@ -116,12 +117,13 @@ data DBusSimpleType
     | TypeInt64
     | TypeUInt64
     | TypeDouble
-    | TypeUnixFD
+    | TypeUnixFD -- ^ Unix File descriptor
     | TypeString
-    | TypeObjectPath
-    | TypeSignature
+    | TypeObjectPath -- ^ Name of an object instance
+    | TypeSignature -- ^ A (DBus) type signature
       deriving (Show, Read, Eq, Data, Typeable)
 
+-- | Pretty-print a simple type (this is _not_ DBUs' type format)
 ppSimpleType :: DBusSimpleType -> String
 ppSimpleType TypeByte       = "Word8"
 ppSimpleType TypeBoolean    = "Boolean"
@@ -137,18 +139,22 @@ ppSimpleType TypeString     = "String"
 ppSimpleType TypeObjectPath = "ObjectPath"
 ppSimpleType TypeSignature  = "Signature"
 
+-- | Composite Types
 data DBusType
-    = DBusSimpleType DBusSimpleType
-    | TypeArray DBusType
-    | TypeStruct [DBusType]
-    | TypeDict DBusSimpleType DBusType
-    | TypeVariant
-    | TypeDictEntry DBusSimpleType DBusType
-    | TypeUnit -- TODO: Remove
-      -- Unit isn't actually a DBus type. It is included
-      -- to make it easier to use methods without a return value
+    = DBusSimpleType DBusSimpleType -- ^ A simple type
+    | TypeArray DBusType -- ^ Variable-length homogenous arrays
+    | TypeStruct [DBusType] -- ^ Structs (Tuples) and a list of member types
+    | TypeDict DBusSimpleType DBusType -- ^ Dictionary / Map
+    | TypeVariant -- ^ Existentially types container. Carries it's own type
+                  -- information
+    | TypeDictEntry DBusSimpleType DBusType -- ^ Internal helper type for
+                                            -- Dicts. You shouldn't have to use
+                                            -- this
+    | TypeUnit -- ^ Unit isn't actually a DBus type. It is included
+               --   to make it possible to use methods without a return value
       deriving (Show, Read, Eq, Data, Typeable)
 
+-- | Pretty-print a type (this is _not_ DBUs' type format)
 ppType :: DBusType -> String
 ppType (DBusSimpleType t) = ppSimpleType t
 ppType (TypeArray ts) = "[" ++ ppType ts ++ "]"
@@ -694,6 +700,8 @@ type PropertySlots = Map ( ObjectPath
                          [Maybe SomeDBusValue -> IO ()]
 
 
+-- | A value representing a connection to a DBus bus. Use 'connectBus' or
+-- 'makeServer' to Create
 data DBusConnection =
     DBusConnection
         { dBusCreateSerial :: STM Serial

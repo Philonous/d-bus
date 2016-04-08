@@ -1,3 +1,4 @@
+{-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -5,13 +6,18 @@
 
 -- | TH helpers to build scaffolding from introspection data
 
-
-module DBus.Scaffold where
+module DBus.Scaffold
+  ( module DBus.Scaffold
+  , def
+  ) where
 
 import           Control.Applicative
 import           Control.Monad
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import           Data.Char
+import           Data.Default
+import           Data.Maybe (fromMaybe, catMaybes)
 import           Data.Monoid
 import           Data.Singletons
 import           Data.Singletons.Prelude.List
@@ -27,6 +33,54 @@ import           DBus.Representable
 import           DBus.Types
 import           DBus.Property
 
+data DBusEndpointOptions =
+  DBusEndpointOptions { methodNames   :: SomeMethodDescription -> Maybe String
+                      , propertyNames :: String -> String
+                      , signalNames   :: String -> String
+                      }
+
+defaultDbusEndpointOptions :: DBusEndpointOptions
+defaultDbusEndpointOptions =
+    DBusEndpointOptions
+    { methodNames  = \(SMD md) -> filterInterfaces (methodInterface md)
+                                    . downcase . Text.unpack $ methodMember md
+    , propertyNames = downcase . (++ "P")
+    , signalNames =  downcase . (++ "Signal")
+    }
+  where
+    filterInterfaces iface x =
+      case iface `elem` [ introspectableInterfaceName
+                        , "org.freedesktop.DBus.Peer"
+                        , "org.freedesktop.DBus.Properties"
+                        ] of
+       True -> Nothing
+       False -> Just x
+    downcase [] = []
+    downcase (x:xs) = toLower x : xs
+
+instance Default DBusEndpointOptions where
+  def = defaultDbusEndpointOptions
+
+makeDbusEndpoints :: DBusEndpointOptions -> ObjectPath -> FilePath -> Q [Dec]
+makeDbusEndpoints conf root xmlFile = do -- @TODO: root
+  node <- readIntrospectXml xmlFile
+  let methods = nodeMethodDescriptions "" node
+      propDs = nodePropertyDescriptions "" node
+      sigDs = nodeSignals "" node
+      downcase [] = []
+      downcase (x:xs) = toLower x : xs
+  mfs <- fmap catMaybes . forM methods $ \smd ->
+            case methodNames conf smd of
+             Nothing -> return Nothing
+             Just name -> Just <$> liftMethodDescription name smd
+  props <- forM propDs $ propertyFromDescription
+           (propertyNames conf . Text.unpack . pdName)
+           Nothing
+  -- sigs <- forM sigDs $ \(ssd@(SSD sd)) ->
+  --     liftSignalDescription () ssd
+  return . concat $ mfs ++ props -- ++ sigs
+  where
+    for = flip fmap
 
 liftObjectPath :: ObjectPath -> ExpQ
 liftObjectPath op = [| objectPath $( liftText $ objectPathToText op) |]
@@ -67,7 +121,7 @@ mapIInterfaces :: (Text -> IInterface -> [a]) -> Text -> INode -> [a]
 mapIInterfaces f path node =
     let ifaceMembers = f path =<< nodeInterfaces node
         subNodeMembers = nodeSubnodes node >>= \n  ->
-            let subPath = path <> "/" <> nodeName n
+            let subPath = path <> "/" <> fromMaybe "" (nodeName n)
             in mapIInterfaces f subPath n
     in ifaceMembers ++ subNodeMembers
 
@@ -178,7 +232,6 @@ propertyFromDescription nameGen mbEntity pd = do
         Just e -> valD (varP name) (normalB . rp $ liftText e) []
     return [tp, cl]
 
-
 nodeSignals :: Text -> INode -> [SomeSignalDescription]
 nodeSignals = mapIInterfaces interfaceSignalDs
 
@@ -186,8 +239,6 @@ interfaceSignalDs :: Text -> IInterface -> [SomeSignalDescription]
 interfaceSignalDs ndName iface = signalDs (objectPath ndName)
                                      (iInterfaceName iface)
                                         <$> iInterfaceSignals iface
-
-
 
 signalDs :: ObjectPath -> Text -> ISignal -> SomeSignalDescription
 signalDs nPath iName iSig =
@@ -231,4 +282,3 @@ liftSignalDescription nameString ssigDesc@(SSD (sigDesc :: SignalDescription a))
     tpDecl <- sigD name t
     decl <- valD (varP name) (normalB e) []
     return [tpDecl, decl]
-  where
