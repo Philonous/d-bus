@@ -104,15 +104,6 @@ module DBus
     , def
     ) where
 
--- $types
---
--- DBus has it's own type system, described here
--- <https://dbus.freedesktop.org/doc/dbus-specification.html#type-system>
---
--- Types are divided into basic types, represented in this library by
--- 'DBusSimpleType', and composite types, represented by 'DBusType'. Only simple
--- types can be the keys in a dictionary
-
 import DBus.Introspect
 import DBus.MainLoop
 import DBus.Message
@@ -132,3 +123,12 @@ ignore _ _ _ = return ()
 -- | Connect to a message bus as a client
 connectClient :: ConnectionType -> IO DBusConnection
 connectClient bus = connectBus bus ignore ignore
+
+-- $types
+--
+-- DBus has it's own type system, described here
+-- <https://dbus.freedesktop.org/doc/dbus-specification.html#type-system>
+--
+-- Types are divided into basic types, represented in this library by
+-- 'DBusSimpleType', and composite types, represented by 'DBusType'. Only simple
+-- types can be the keys in a dictionary

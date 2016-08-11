@@ -222,12 +222,12 @@ data ConnectionType = System -- ^ The well-known system bus. First
                               -- DBUS_SESSION_BUS_ADDRESS
                     | Address String -- ^ The bus at the give addresss
 
-type MethodCallHandler = ( DBusConnection -- ^ Connection that the call was
+type MethodCallHandler = DBusConnection -- ^ Connection that the call was
                                           -- received from. Should be used to
                                           -- return the result or error
-                           -> MessageHeader
-                           -> [SomeDBusValue]
-                           -> IO ())
+                       -> MessageHeader
+                       -> [SomeDBusValue]
+                       -> IO ()
 
 type SignalHandler = ( DBusConnection
                        -> MessageHeader
