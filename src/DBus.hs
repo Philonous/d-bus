@@ -4,6 +4,7 @@ module DBus
       DBusConnection
     , ConnectionType(..)
     , connectClient
+    , connectClientWithAuth
     , makeServer
     , connectBus
     , MethodCallHandler
@@ -104,6 +105,9 @@ module DBus
     , def
     ) where
 
+import qualified Data.ByteString as BS
+
+import DBus.Auth
 import DBus.Introspect
 import DBus.MainLoop
 import DBus.Message
@@ -120,9 +124,14 @@ import Data.Default (def)
 -- | Ignore all incoming messages/signals
 ignore _ _ _ = return ()
 
--- | Connect to a message bus as a client
+
+-- | Connect to a message bus as a client, using the @EXTERNAL@ auth mechanism.
 connectClient :: ConnectionType -> IO DBusConnection
 connectClient bus = connectBus bus ignore ignore
+
+-- | Connect to a message bus as a client with a custom auth mechanism.
+connectClientWithAuth :: ConnectionType -> SASL BS.ByteString -> IO DBusConnection
+connectClientWithAuth bus auth = connectBusWithAuth bus auth ignore ignore
 
 -- $types
 --
