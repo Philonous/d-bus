@@ -126,9 +126,9 @@ connectTcp tcp | Just host <- tcpHost tcp
             Nothing -> AF_UNSPEC
             Just TCPFamilyIPv4 -> AF_INET
             Just TCPFamilyIPv6 -> AF_INET6
-    addrInfo <- getAddrInfo (Just $ defaultHints{ addrFamily = family} )
-                            (Just . Text.unpack . Text.decodeUtf8 $ host)
-                            Nothing
+    addrInfo <- withPort port <$> getAddrInfo (Just $ defaultHints{ addrFamily = family} )
+                                              (Just . Text.unpack . Text.decodeUtf8 $ host)
+                                              Nothing
     case addrInfo of
         (ai : _) -> Ex.catch
             (Ex.bracketOnError (socket (addrFamily ai)
@@ -143,6 +143,14 @@ connectTcp tcp | Just host <- tcpHost tcp
                        Ex.throwIO $ CouldNotConnect "Could not connect")
 
         _ -> Ex.throwIO $ CouldNotConnect "Host not found"
+  where
+    withPort p = fmap (addrInfoWithPort $ fromIntegral p)
+    addrInfoWithPort p ai = ai { addrAddress = sockAddrWithPort p (addrAddress ai) }
+
+    sockAddrWithPort p (SockAddrInet _ addr) = SockAddrInet p addr
+    sockAddrWithPort p (SockAddrInet6 _ info addr sid) = SockAddrInet6 p info addr sid
+    sockAddrWithPort _ x = x
+
 connectTcp _ = Ex.throwIO $ CouldNotConnect "TCP method does not specify necessary data"
 
 connectUnix :: UDS -> IO Socket

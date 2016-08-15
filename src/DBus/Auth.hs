@@ -187,3 +187,10 @@ external = do
     ok <- expectOK
     saslSend CMBegin
     return ok
+
+anonymous :: SASL BS.ByteString
+anonymous = do
+    saslSend (CMAuth "ANONYMOUS" "")
+    ok <- expectOK
+    saslSend CMBegin
+    return ok

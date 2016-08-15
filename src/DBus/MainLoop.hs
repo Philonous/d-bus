@@ -234,16 +234,27 @@ type SignalHandler = ( DBusConnection
                        -> [SomeDBusValue]
                        -> IO ())
 
--- | General way to connect to a message bus. Takes two callback functions:
+-- | General way to connect to a message bus, see 'connectBusWithAuth'.
 --
--- * A 'MethodCallHandler' that is invoked when a method call is received.
---
--- * A SignalHandler that is invoked when a Mesage is received:
+-- Uses the @EXTERNAL@ authentication mechanism.
 connectBus :: ConnectionType -- ^ Bus to connect to
            -> MethodCallHandler -- ^ Handler for incoming method calls
            -> SignalHandler  -- ^ Handler for incoming signals
            -> IO DBusConnection
-connectBus transport handleCalls handleSignals = do
+connectBus transport = connectBusWithAuth transport external
+
+-- | General way to connect to a message bus, with a custom authentication
+-- method. Takes two callback functions:
+--
+-- * A 'MethodCallHandler' that is invoked when a method call is received.
+--
+-- * A SignalHandler that is invoked when a Mesage is received:
+connectBusWithAuth :: ConnectionType -- ^ Bus to connect to
+                   -> SASL BS.ByteString -- ^ The authentication mechanism
+                   -> MethodCallHandler -- ^ Handler for incoming method calls
+                   -> SignalHandler  -- ^ Handler for incoming signals
+                   -> IO DBusConnection
+connectBusWithAuth transport auth handleCalls handleSignals = do
     addressString <- case transport of
         Session -> getEnv "DBUS_SESSION_BUS_ADDRESS"
         System -> do
@@ -269,7 +280,7 @@ connectBus transport handleCalls handleSignals = do
                   bs <- BS.hGetLine h
                   debugM "DBus.Sasl" $ "S: " ++ show bs
                   return bs)
-            external
+            auth
     serialCounter <- newTVarIO 1
     let getSerial = do
             s <- readTVar serialCounter
@@ -320,11 +331,18 @@ connectBus transport handleCalls handleSignals = do
         debugM "DBus" $ "Done"
         return conn{dBusConnectionName = connName}
 
--- | Create a simple server that exports @Objects@ and ignores all incoming signals
+-- | Create a simple server that exports @Objects@ and ignores all incoming signals.
+--
+-- Use the default @EXTERNAL@ authentication mechanism (see 'makeServerWithAuth').
 makeServer :: ConnectionType -> Objects -> IO DBusConnection
-makeServer transport objs = do
-    connectBus transport (objectRoot (addIntrospectable objs))
-                         (\_ _ _ -> return ())
+makeServer transport = makeServerWithAuth transport external
+
+-- | Create a simple server with a custom bus authentication mechanism that
+-- exports @Objects@ and ignores all incoming signals.
+makeServerWithAuth :: ConnectionType -> SASL BS.ByteString -> Objects -> IO DBusConnection
+makeServerWithAuth transport auth objs = do
+    connectBusWithAuth transport auth (objectRoot (addIntrospectable objs))
+                                      (\_ _ _ -> return ())
 
 type Handler = DBusConnection -> MessageHeader -> [SomeDBusValue] -> IO ()
 
