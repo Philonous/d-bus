@@ -85,8 +85,8 @@ relevantTyVars constrs = concatMap tyVars constrs
 makeRepresentable name = do
     TyConI t <- reify name
     let (numTyParams, tyVarNames, cons) = case t of
-            NewtypeD _ _ tvs c _ -> (length tvs, tyVarName <$> tvs, [c])
-            DataD _ _ tvs cs _ -> (length tvs, tyVarName <$> tvs, cs)
+            NewtypeD _ _ tvs _ c _ -> (length tvs, tyVarName <$> tvs, [c])
+            DataD _ _ tvs _ cs _ -> (length tvs, tyVarName <$> tvs, cs)
         ctx1 = mapM (classP ''SingI . (:[]) . appT (conT ''RepType)) (varT <$> (relevantTyVars cons))
         ctx2 = mapM (classP ''Representable . (:[])) (varT <$> relevantTyVars cons)
         ctx = liftM2 (++) ctx1 ctx2

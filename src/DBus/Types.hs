@@ -228,7 +228,9 @@ data Signal a = Signal { signalPath :: ObjectPath
                        , signalInterface :: InterfaceName
                        , signalMember :: MemberName
                        , signalBody :: DBusArguments a
-                       } deriving (Show)
+                       }
+
+deriving instance (SingI a) => Show (Signal a)
 
 data SomeSignal where
     SomeSignal :: SingI a => Signal a -> SomeSignal
