@@ -56,7 +56,7 @@ library
                    , network >= 2.4
                    , singletons >= 1.0
                    , stm >= 2.4
-                   , template-haskell >= 2.11
+                   , template-haskell >= 2.8
                    , text >= 1.1
                    , transformers >= 0.4
                    , xml-conduit >= 1.1
