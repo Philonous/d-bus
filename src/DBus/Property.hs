@@ -47,13 +47,16 @@ mkProperty path iface name get set pecs =
     let prop = Property { propertyPath = path
                         , propertyInterface = iface
                         , propertyName = name
-                        , propertySet = doSet <$> set
+                        , propertySet = doSet prop <$> set
                         , propertyGet = fmap toRep <$> get
                         , propertyEmitsChangedSignal = pecs
                         }
     in prop
   where
-    doSet f v = f =<< fromRepHelper v
+    doSet prop f v = do
+      x <- fromRepHelper v
+      propertyChanged prop x
+      f x
     fromRepHelper x = case fromRep x of
         Nothing -> methodError argTypeMismatch
         Just r -> return r
