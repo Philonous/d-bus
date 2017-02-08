@@ -260,7 +260,7 @@ toSings :: [IArgument] -> SomeArgumentDescription
 toSings [] = SSAD SNil Done
 toSings (iarg : iargs) =
     let t = iArgumentType iarg
-        desc = iArgumentName iarg
+        desc = fromMaybe "" $ iArgumentName iarg
     in case (toSing t, toSings iargs) of
             (SomeSing s, SSAD ss descs)
                 -> SSAD (SCons s ss) (desc :> descs)

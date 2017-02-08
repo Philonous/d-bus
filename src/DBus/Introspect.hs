@@ -65,7 +65,7 @@ propertyAccessToText Read = "read"
 propertyAccessToText Write = "write"
 propertyAccessToText ReadWrite = "readwrite"
 
-data IArgument = IArgument { iArgumentName :: Text
+data IArgument = IArgument { iArgumentName :: Maybe Text
                            , iArgumentType :: DBusType
                            , iArgumentDirection :: Maybe IDirection
                            } deriving (Eq, Show, Data, Typeable)
@@ -118,7 +118,7 @@ xpArgument :: PU [Node] IArgument
 xpArgument = xpWrap (\(name, tp, dir) -> IArgument name tp dir)
                     (\(IArgument name tp dir) -> (name, tp, dir)) $
                  xpElemAttrs "arg"
-                     (xp3Tuple (xpAttribute "name" xpText)
+                     (xp3Tuple (xpAttribute' "name" xpText)
                                (xpAttribute "type" xpSignature)
                                (xpAttribute' "direction" xpDirection)
                      )
@@ -207,13 +207,13 @@ introspectMethods = map introspectMethod
     toArgs m@(Method _ _ argDs resDs) =
         let (args, res) = methodSignature m
             (ts, rs) = argDescriptions argDs resDs
-        in zipWith (\n t -> IArgument n t (Just In)) ts args
-           ++ zipWith ((\r t -> IArgument r t (Just Out))) rs res
+        in zipWith (\n t -> IArgument (Just n) t (Just In)) ts args
+           ++ zipWith ((\r t -> IArgument (Just  r) t (Just Out))) rs res
 
 
 introspectSignalArgument :: DBusType -> Text -> IArgument
 introspectSignalArgument tp name =
-    IArgument { iArgumentName = name
+    IArgument { iArgumentName = Just name
               , iArgumentType = tp
               , iArgumentDirection = Nothing
               }
@@ -288,31 +288,31 @@ propertiesInterface =
                iMethodName = "Get"
              , iMethodArguments =
                  [ IArgument {
-                       iArgumentName = "interface_name"
+                       iArgumentName = Just "interface_name"
                        , iArgumentType = DBusSimpleType TypeString
                        , iArgumentDirection = Just In}
                  , IArgument {
-                       iArgumentName = "property_name"
+                       iArgumentName = Just "property_name"
                      , iArgumentType = DBusSimpleType TypeString
                      , iArgumentDirection = Just In}
-                          , IArgument {
-                                iArgumentName = "value"
-                              , iArgumentType = TypeVariant
-                              , iArgumentDirection = Just Out }]
-                      , iMethodAnnotations = []}
+                 , IArgument {
+                     iArgumentName = Just "value"
+                     , iArgumentType = TypeVariant
+                     , iArgumentDirection = Just Out }]
+             , iMethodAnnotations = []}
           , IMethod{
                 iMethodName = "Set"
               , iMethodArguments =
                   [ IArgument {
-                         iArgumentName = "interface_name"
+                         iArgumentName = Just "interface_name"
                        , iArgumentType = DBusSimpleType TypeString
                        , iArgumentDirection = Just In }
                   , IArgument {
-                         iArgumentName = "property_name"
+                         iArgumentName = Just "property_name"
                        , iArgumentType = DBusSimpleType TypeString
                        , iArgumentDirection = Just In }
                   , IArgument {
-                         iArgumentName = "value"
+                         iArgumentName = Just "value"
                         , iArgumentType = TypeVariant
                         , iArgumentDirection = Just In}]
               , iMethodAnnotations = [] }
@@ -320,11 +320,11 @@ propertiesInterface =
                 iMethodName = "GetAll"
               , iMethodArguments =
                   [ IArgument {
-                         iArgumentName = "interface_name"
+                         iArgumentName = Just "interface_name"
                        , iArgumentType = DBusSimpleType TypeString
                        , iArgumentDirection = Just In }
                   , IArgument {
-                         iArgumentName = "props"
+                         iArgumentName = Just "props"
                        , iArgumentType = TypeDict TypeString TypeVariant
                        , iArgumentDirection = Just Out }]
               , iMethodAnnotations = [] }]
@@ -332,15 +332,15 @@ propertiesInterface =
               [ ISignal { iSignalName = "PropertiesChanged"
                         , iSignalArguments =
                             [ IArgument {
-                                   iArgumentName = "interface_name"
+                                   iArgumentName = Just "interface_name"
                                  , iArgumentType = DBusSimpleType TypeString
                                  , iArgumentDirection = Nothing}
                             , IArgument {
-                                   iArgumentName = "changed_properties"
+                                   iArgumentName = Just "changed_properties"
                                  , iArgumentType = TypeDict TypeString TypeVariant
                                  , iArgumentDirection = Nothing}
                             , IArgument {
-                                   iArgumentName = "invalidated_properties"
+                                   iArgumentName = Just "invalidated_properties"
                                  , iArgumentType =
                                      TypeArray (DBusSimpleType TypeString)
                                  , iArgumentDirection = Nothing}]
