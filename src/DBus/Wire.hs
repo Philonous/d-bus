@@ -240,13 +240,13 @@ getWord64 :: DBusGet Word64
 getWord64 = getting B.getWord64le B.getWord64be 8
 
 getInt16 :: DBusGet Int16
-getInt16 = fromIntegral <$> getWord16
+getInt16 = getting B.getInt16le B.getInt16be 2
 
 getInt32 :: DBusGet Int32
-getInt32 = fromIntegral <$> getWord32
+getInt32 = getting B.getInt32le B.getInt32be 4
 
 getInt64 :: DBusGet Int64
-getInt64 = fromIntegral <$> getWord64
+getInt64 = getting B.getInt64le B.getInt64be 8
 
 getDouble :: DBusGet Double
 getDouble = getting B.getFloat64le B.getFloat64be 8
