@@ -64,9 +64,9 @@ instance Default DBusEndpointOptions where
 makeDbusEndpoints :: DBusEndpointOptions -> ObjectPath -> FilePath -> Q [Dec]
 makeDbusEndpoints conf root xmlFile = do -- @TODO: root
   node <- readIntrospectXml xmlFile
-  let methods = nodeMethodDescriptions "" node
-      propDs = nodePropertyDescriptions "" node
-      sigDs = nodeSignals "" node
+  let methods = nodeMethodDescriptions node
+      propDs = nodePropertyDescriptions node
+      sigDs = nodeSignals node
       downcase [] = []
       downcase (x:xs) = toLower x : xs
   mfs <- fmap catMaybes . forM methods $ \smd ->
@@ -125,8 +125,9 @@ mapIInterfaces f path node =
             in mapIInterfaces f subPath n
     in ifaceMembers ++ subNodeMembers
 
-nodeMethodDescriptions :: Text -> INode -> [SomeMethodDescription]
-nodeMethodDescriptions = mapIInterfaces interfacMethodDescriptions
+nodeMethodDescriptions :: INode -> [SomeMethodDescription]
+nodeMethodDescriptions node =
+  mapIInterfaces interfacMethodDescriptions (fromMaybe "" $ nodeName node) node
 
 interfacPropertyDescriptions :: Text -> IInterface -> [PropertyDescription]
 interfacPropertyDescriptions path iface =
@@ -146,9 +147,10 @@ data PropertyDescription = PD { pdObjectPath :: Text
                               , pdType :: DBusType
                               }
 
-nodePropertyDescriptions :: Text -> INode -> [PropertyDescription]
-nodePropertyDescriptions = mapIInterfaces interfacPropertyDescriptions
-
+nodePropertyDescriptions :: INode -> [PropertyDescription]
+nodePropertyDescriptions node =
+  mapIInterfaces interfacPropertyDescriptions (fromMaybe "" $ nodeName node)
+                 node
 liftText t = [|Text.pack $(liftString (Text.unpack  t))|]
 
 
@@ -191,6 +193,8 @@ liftMethodDescription :: String
                       -> Q [Dec]
 liftMethodDescription name smd = case smd of
   (SMD (md :: MethodDescription args rets)) -> do
+    when (isEmpty $ methodObjectPath md)
+      . fail $ "empty method path: " ++ show md
     let ats = promotedListT . map promoteDBusType $
                 fromSing (sing :: Sing args)
         rts = promotedListT . map promoteDBusType $
@@ -232,8 +236,10 @@ propertyFromDescription nameGen mbEntity pd = do
         Just e -> valD (varP name) (normalB . rp $ liftText e) []
     return [tp, cl]
 
-nodeSignals :: Text -> INode -> [SomeSignalDescription]
-nodeSignals = mapIInterfaces interfaceSignalDs
+nodeSignals :: INode -> [SomeSignalDescription]
+nodeSignals node =
+  mapIInterfaces interfaceSignalDs (fromMaybe "" $ nodeName node) node
+
 
 interfaceSignalDs :: Text -> IInterface -> [SomeSignalDescription]
 interfaceSignalDs ndName iface = signalDs (objectPath ndName)

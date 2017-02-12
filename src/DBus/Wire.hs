@@ -355,10 +355,14 @@ getManyPairs len kt vt = do
             EQ -> return []
             GT -> mzero
 
-
+-- | Run a Binary Getter as a Sink
 sinkGet :: MonadThrow m => B.Get b -> C.ConduitM BS.ByteString o m b
 sinkGet f = sink (B.runGetIncremental f)
   where
       sink (B.Done bs _ v)  = C.leftover bs >> return v
-      sink (B.Fail u o e)   = throwM $ DBusParseError e
-      sink (B.Partial next) = C.await >>= sink . next
+      sink (B.Fail u o e)   = throwM $ DBusParseError $ e
+                                ++ " (" ++ show o ++ "; "
+                                ++ show u ++ ")"
+      sink (B.Partial next) = do
+        bs <- C.await
+        sink $ next bs
