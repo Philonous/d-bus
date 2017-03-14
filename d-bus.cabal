@@ -9,7 +9,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Philipp Balzarek
 maintainer:          p.balzarek@googlemail.com
-copyright:           2013 Philipp Balzarek
+copyright:           2013-2017 Philipp Balzarek
 category:            Network, Desktop
 build-type:          Simple
 cabal-version:       >=1.10
@@ -41,7 +41,7 @@ library
   build-depends:     async >= 2.0
                    , attoparsec >= 0.12
                    , base >= 4 && <5
-                   , binary >= 0.7
+                   , binary >= 0.8.1.0
                    , blaze-builder >= 0.3
                    , bytestring >= 0.10
                    , conduit >= 1.1
