@@ -317,7 +317,7 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                     propertySlots
                      ))
             (\e -> print (e :: Ex.SomeException) >> kill >> Ex.throwIO e)
-        addFinalizer aliveRef $ killThread handlerThread
+        addTVarFinalizer aliveRef $ killThread handlerThread
         let conn = DBusConnection { dBusCreateSerial = getSerial
                                   , dBusAnswerSlots = answerSlots
                                   , dbusSignalSlots = signalSlots
@@ -330,6 +330,10 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
         connName <- hello conn
         debugM "DBus" $ "Done"
         return conn{dBusConnectionName = connName}
+
+  where
+    addTVarFinalizer :: TVar a -> IO () -> IO ()
+    addTVarFinalizer tvar fin = void $ mkWeakTVar tvar fin
 
 -- | Create a simple server that exports @Objects@ and ignores all incoming signals.
 --
