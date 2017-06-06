@@ -311,7 +311,7 @@ callMethod' dest path interface member args flags conn = do
     serial <- atomically $ dBusCreateSerial conn
     ref <- newEmptyTMVarIO
     rSlot <- newTVarIO ()
-    mkWeak rSlot (connectionAliveRef conn) Nothing
+    mkWeak rSlot (gcRef conn) Nothing
     _ <- mkWeakTVar rSlot (finalizeSlot serial)
     slot <- atomically $ do
         modifyTVar (dBusAnswerSlots conn) (Map.insert serial $ putTMVar ref)
