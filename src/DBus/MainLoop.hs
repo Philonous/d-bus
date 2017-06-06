@@ -323,10 +323,8 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
     -- Note that we update gcRef *outside* of the mfix block.
     conn <- mfix $ \conn' -> do
         debugM "DBus" $ "Forking"
-        handlerThread <- forkIO $ do
-
-          Ex.catch (do
-            CB.sourceHandle h
+        handlerThread <- forkIO $
+            (CB.sourceHandle h
                 C.$= parseMessages
                 C.$$ (C.awaitForever $ liftIO .
                       handleMessage (handleCalls conn')
@@ -334,8 +332,8 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                     answerSlots
                                     signalSlots
                                     propertySlots
-                     ))
-            (\e -> print (e :: Ex.SomeException) >> kill >> Ex.throwIO e)
+                     )
+            ) `Ex.finally` kill
         addTVarFinalizer gcRef $ killThread handlerThread
         let conn = DBusConnection { dBusCreateSerial = getSerial
                                   , dBusAnswerSlots = answerSlots
