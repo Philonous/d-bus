@@ -730,6 +730,9 @@ data DBusConnection =
         , dBusWriteLock :: TMVar (BS.Builder -> IO ())
         , dBusConnectionName :: Text
         , connectionAliveRef :: TVar Bool
+        , gcRef :: !(TVar ())
+          -- ^ A dummy TVar to which we attach a finalizer.
+          -- When this TVar is garbage-collected, the connection is closed.
         }
 
 data MethodDescription args rets where

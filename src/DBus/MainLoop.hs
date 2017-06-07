@@ -31,7 +31,6 @@ import           Network.Socket.ByteString    (send)
 import           System.Environment
 import           System.IO
 import           System.Log.Logger
-import           System.Mem.Weak
 
 import           DBus.Auth
 import           DBus.Error
@@ -190,6 +189,7 @@ waitFor :: DBusConnection -> IO ()
 waitFor conn = atomically $ do
     alive <- readTVar (connectionAliveRef conn)
     when alive retry
+    void $ readTVar (gcRef conn) -- avoid closing the connection prematurely
 
 -- | Which Bus to connect to
 data ConnectionType = System -- ^ The well-known system bus. First
@@ -271,12 +271,11 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
     signalSlots <- newTVarIO ([] :: SignalSlots)
     propertySlots <- newTVarIO (Map.empty :: PropertySlots)
     aliveRef <- newTVarIO True
-    weakAliveRef <- mkWeakPtr aliveRef Nothing
+    -- True and fake GC refs, see the explanation below.
+    gcRef' <- newTVarIO ()
+    fakeGcRef <- newTVarIO ()
     let kill = do
-            mbRef <- deRefWeak weakAliveRef
-            case mbRef of
-                 Nothing -> return ()
-                 Just ref -> atomically $ writeTVar ref False
+            atomically $ writeTVar aliveRef False
             hClose h
             slots <- atomically $ do sls <- readTVar answerSlots
                                      writeTVar answerSlots Map.empty
@@ -284,10 +283,27 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
             atomically $ writeTVar signalSlots []
             atomically $ forM_ (Map.elems slots) $ \s' -> s' . Left $
                                             [DBV $ DBVString "Connection Closed"]
-    mfix $ \conn' -> do
+    -- In order not to retain a reference to gcRef in the connection thread,
+    -- the DBusConnection in the connection thread (forked below) needs to
+    -- contain a "fake" TVar (), different from the one to which the
+    -- finalizer is attached.
+    --
+    -- Originally, I tried to overwrite the gcRef after that thread
+    -- is forked and set it to fakeGcRef. However, that didn't work:
+    --
+    -- * We can't force evaluation of the DBusConnection in the forked
+    --   thread; it makes the mfix diverge due to the lack of laziness.
+    -- * OTOH, if we don't force the DBusConnection, the update thunk
+    --   continues to hold the reference to the original DBusConnection, and,
+    --   therefore, to the "true" gcRef.
+    --
+    -- Hence, we do it the other way around: initialize the connection with
+    -- the fakeGcRef and later overwrite it with the true one.
+    -- Note that we update gcRef *outside* of the mfix block.
+    conn <- mfix $ \conn' -> do
         debugM "DBus" $ "Forking"
-        handlerThread <- forkIO $ Ex.catch (do
-            CB.sourceHandle h
+        handlerThread <- forkIO $
+            (CB.sourceHandle h
                 C.$= parseMessages
                 C.$$ (C.awaitForever $ liftIO .
                       handleMessage (handleCalls conn')
@@ -295,9 +311,9 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                     answerSlots
                                     signalSlots
                                     propertySlots
-                     ))
-            (\e -> print (e :: Ex.SomeException) >> kill >> Ex.throwIO e)
-        addFinalizer aliveRef $ killThread handlerThread
+                     )
+            ) `Ex.finally` kill
+        addTVarFinalizer gcRef' $ killThread handlerThread
         let conn = DBusConnection { dBusCreateSerial = getSerial
                                   , dBusAnswerSlots = answerSlots
                                   , dbusSignalSlots = signalSlots
@@ -305,11 +321,17 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                   , dBusWriteLock = lock
                                   , dBusConnectionName = ""
                                   , connectionAliveRef = aliveRef
+                                  , gcRef = fakeGcRef
                                   }
         debugM "DBus" $ "hello"
         connName <- hello conn
         debugM "DBus" $ "Done"
         return conn{dBusConnectionName = connName}
+    return conn{gcRef = gcRef'}
+
+  where
+    addTVarFinalizer :: TVar a -> IO () -> IO ()
+    addTVarFinalizer tvar fin = void $ mkWeakTVar tvar fin
 
 -- | Create a simple server that exports @Objects@ and ignores all incoming signals.
 --
