@@ -102,26 +102,27 @@ module DBus
 -- * Scaffolding
     , module DBus.Scaffold
 -- * Re-exports
-    , def
+    , SingI (..)
     ) where
 
 import qualified Data.ByteString as BS
 
-import DBus.Auth
-import DBus.Introspect
-import DBus.MainLoop
-import DBus.Message
-import DBus.MessageBus
-import DBus.Object
-import DBus.Property
-import DBus.Method
-import DBus.Signal
-import DBus.TH
-import DBus.Types
-import DBus.Scaffold
-import Data.Default (def)
+import           DBus.Auth
+import           DBus.Introspect
+import           DBus.MainLoop
+import           DBus.Message
+import           DBus.MessageBus
+import           DBus.Method
+import           DBus.Property
+import           DBus.Scaffold
+import           DBus.Signal
+import           DBus.TH
+import           DBus.Types
+import           Data.Default    (def)
+import           Data.Singletons
 
 -- | Ignore all incoming messages/signals
+ignore :: Monad m => a -> b -> c -> m ()
 ignore _ _ _ = return ()
 
 

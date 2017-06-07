@@ -7,7 +7,6 @@
 
 module DBus.Auth where
 
-import           Control.Applicative
 import           Control.Monad.Except
 import           Control.Monad.Free
 import qualified Data.Attoparsec.ByteString as AP
@@ -32,21 +31,24 @@ data ServerMessage = SMRejected [BS.ByteString]
                    | SMData BS.ByteString
                      deriving (Show)
 
+space :: AP.Parser BS.ByteString -> AP.Parser BS.ByteString
 space x = (AP8.char8 ' ' >> x) `mplus` (return "")
+
 
 parseHexString :: AP.Parser BS.ByteString
 parseHexString = space $ (BS.pack <$> AP.many' parseHexChar)
 
 parseHexChar :: AP.Parser Word8
 parseHexChar = do
-    hi <- fromHex <$> AP.satisfy isHexDigit
-    lo <- fromHex <$> AP.satisfy isHexDigit
+    hi <- fromHex =<< AP.satisfy isHexDigit
+    lo <- fromHex =<< AP.satisfy isHexDigit
     return $ (hi `shiftL` 4) .|. lo
   where
     isHexDigit w = (w >= 48 && w <= 57) ||
                    (w >= 97 && w <= 102)
-    fromHex w | w >= 48 && w <= 57  =  fromIntegral (w - 48)
-              | w >= 97             =  fromIntegral (w - 87)
+    fromHex w | w >= 48 && w <= 57  =  return $ fromIntegral (w - 48)
+              | w >= 97             =  return $ fromIntegral (w - 87)
+    fromHex w = fail $ "Not a hex character: " <> show w
 
 
 
@@ -63,9 +65,9 @@ parseLine :: BS.ByteString
           -> AP.Parser t
           -> AP.Parser a
 parseLine command cons args = do
-    AP.string command
+    _ <- AP.string command
     res <- args
-    AP.string "\r"
+    _ <- AP.string "\r"
     return $ cons res
 
 parseWords :: AP.Parser [BS.ByteString]
@@ -99,10 +101,12 @@ data ClientMessage = CMAuth Mechanism InitialResponse
                      deriving (Show)
 
 
+serializeLine :: BS.ByteString -> BS.Builder -> BS.Builder
 serializeLine command rest =
     BS.byteString command <> BS.char8 ' ' <> rest <> BS.byteString "\r\n"
 
 
+serializeCMessage :: ClientMessage -> BS.Builder
 serializeCMessage (CMAuth mechanism response) =
     serializeLine "AUTH" $ if BS.null mechanism
                            then mempty
@@ -154,7 +158,7 @@ runSasl :: Monad m =>
         -> SASL b
         -> m (Either String b)
 runSasl snd' rcv' (SASL s) = do
-    let snd = snd' . serializeCMessage
+    let sd = snd' . serializeCMessage
         rcv = do
             bs <- rcv'
             case AP.parseOnly parseServerLine bs of
@@ -164,17 +168,18 @@ runSasl snd' rcv' (SASL s) = do
                                      ++ ": " ++ show e
                 Right r -> return r
     return ()
-    res <- go snd rcv (runExceptT s)
+    res <- go sd rcv (runExceptT s)
     case res of
         Left e -> do
-            snd (CMCancel)
+            _ <- sd CMCancel
             return $ Left e
         Right r -> return $ Right r
   where
     go  _   _   (Pure x) = return x
-    go  snd rcv (Free (Send x f)) = snd x >> go snd rcv f
-    go  snd rcv (Free (Recv f  )) = rcv >>=  go snd rcv . f
+    go  sd rcv (Free (Send x f)) = sd x >> go sd rcv f
+    go  sd rcv (Free (Recv f  )) = rcv >>=  go sd rcv . f
 
+sasl :: SASL ServerMessage
 sasl = do
     saslSend (CMAuth "" "")
     saslRecv

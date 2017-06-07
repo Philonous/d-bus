@@ -3,13 +3,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module DBus.MessageBus where
 
-import qualified Control.Exception as Ex
-import           Control.Monad.Catch (MonadThrow, throwM)
+import qualified Control.Exception      as Ex
+import           Control.Monad.Catch    (MonadThrow, throwM)
 import           Control.Monad.IO.Class
-import           Control.Monad.Trans (MonadIO)
+import           Control.Monad.Trans    (MonadIO)
 import           Data.Default
+import           Data.Monoid
 import           Data.Singletons
-import qualified Data.Text as Text
+import qualified Data.Text              as Text
 import           Data.Word
 
 import           DBus.Message
@@ -48,12 +49,12 @@ instance Default RequestNameFlag where
     def = RequestNameFlag False False False
 
 fromRequestNameFlags :: RequestNameFlag -> Word32
-fromRequestNameFlags flags = sum [ fromFlag allowReplacement 0x01
-                                 , fromFlag replaceExisting  0x02
-                                 , fromFlag doNotQueue       0x04
-                                 ]
+fromRequestNameFlags flags' = sum [ fromFlag allowReplacement 0x01
+                                  , fromFlag replaceExisting  0x02
+                                  , fromFlag doNotQueue       0x04
+                                  ]
   where
-    fromFlag x n = if x flags then n else 0
+    fromFlag x n = if x flags' then n else 0
 
 data RequestNameReply = PrimaryOwner
                       | InQueue
@@ -65,8 +66,8 @@ requestName :: (MonadIO m, MonadThrow m) =>
             -> RequestNameFlag
             -> DBusConnection
             -> m RequestNameReply
-requestName name flags con = do
-    reply <- messageBusMethod "RequestName" (name, fromRequestNameFlags flags)
+requestName name flags' con = do
+    reply <- messageBusMethod "RequestName" (name, fromRequestNameFlags flags')
                                             con
     case reply :: Word32 of
         1 -> return PrimaryOwner
@@ -119,9 +120,10 @@ startServiceByName :: (MonadIO m, MonadThrow m) =>
                    -> m StartServiceResult
 startServiceByName name con = do
     res <- messageBusMethod "StartServiceByName" (name, 0 :: Word32) con
-    return $ case (res :: Word32) of
-        1 -> StartServiceSuccess
-        2 -> StartServiceAlreadyRunning
+    case (res :: Word32) of
+      1 -> return StartServiceSuccess
+      2 -> return StartServiceAlreadyRunning
+      _ -> throwM $ MarshalError $ "StartServiceByName returned" <> show res
 
 getNameOwner :: (MonadIO m, MonadThrow m) =>
                 Text.Text

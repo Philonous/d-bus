@@ -4,25 +4,19 @@
 module DBus.Transport where
 
 import           Control.Applicative ((<$>))
-import           Control.Concurrent
+
 import qualified Control.Exception as Ex
 import           Control.Monad
 import           Data.Attoparsec.ByteString as AP
 import           Data.Attoparsec.ByteString.Char8 as AP8
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString.Lazy.Builder as BS
-import qualified Data.Conduit as C
 import           Data.List as List
 import qualified Data.Text as Text
-import           Data.Text as Text
 import           Data.Text.Encoding as Text
 import           Data.Word
 import           Network
 import           Network.Socket
-import           System.IO
-
-import           System.Environment
 
 import           DBus.Auth
 import           DBus.Error
@@ -56,12 +50,12 @@ withProtocol :: AP.Parser t
 withProtocol nameParser f = do
     name <- nameParser
     ((fmap Just $ do
-        AP8.char8 ':'
+        _ <- AP8.char8 ':'
         pairs <- parsePair `AP.sepBy` (AP8.char8 ',')
         mbGuid <- case List.lookup "guid" pairs of
             Nothing -> return Nothing
             Just g -> case AP.parseOnly parseHexString g of
-                Left e -> fail "could not parse GUID"
+                Left _ -> fail "could not parse GUID"
                 Right r -> return $ Just r
         ret <- f (name, List.filter ((/= "guid").fst) pairs)
         return (mbGuid, ret)
@@ -70,7 +64,7 @@ withProtocol nameParser f = do
 parsePair :: AP.Parser (BS.ByteString, BS.ByteString)
 parsePair = do
     key <- AP8.takeWhile1 (\c -> AP8.isAlpha_ascii c || (c >= '0' && c <= '9'))
-    AP8.char8 '='
+    _ <- AP8.char8 '='
     value <- BS.pack <$> AP.many1' valueChar
     return (key, value)
   where
@@ -78,6 +72,7 @@ parsePair = do
                        , AP8.char '%' >> parseHexChar
                        ]
 
+parseUnix :: Parser (Maybe (Maybe BS8.ByteString, TransportType))
 parseUnix = withProtocol (AP.string "unix") $ \ (_, pairs) -> TransportUnix <$>
     case pairs of
         [("path", p)] -> return $ UDSPath p
@@ -105,6 +100,7 @@ parseOtherTransport =
     withProtocol (AP.takeWhile1 $ AP.inClass "a-zA-Z0-9-")
     $ \(name, pairs) -> return $ OtherTransport name pairs
 
+parseMaybe :: MonadPlus m => Maybe a -> m a
 parseMaybe Nothing = mzero
 parseMaybe (Just x) = return x
 
@@ -139,7 +135,7 @@ connectTcp tcp | Just host <- tcpHost tcp
                                    connect s $ addrAddress ai
                                    return s
             )
-            (\(e :: Ex.SomeException) ->
+            (\(_ :: Ex.SomeException) ->
                        Ex.throwIO $ CouldNotConnect "Could not connect")
 
         _ -> Ex.throwIO $ CouldNotConnect "Host not found"
@@ -167,6 +163,7 @@ connectUnix unix = do
                                                ++ show e)
     return s
 
+connectTransport :: TransportType -> IO Socket
 connectTransport (TransportTCP tcp) = connectTcp tcp
 connectTransport (TransportUnix unix) = connectUnix unix
 connectTransport (OtherTransport name _) = Ex.throwIO . CouldNotConnect $
@@ -176,12 +173,12 @@ connectTransport (OtherTransport name _) = Ex.throwIO . CouldNotConnect $
 connectString :: String -> IO (Maybe Socket)
 connectString s = case AP.parseOnly parseTransports
                             (Text.encodeUtf8 . Text.pack $ s) of
-                    Left e -> return $ Nothing
+                    Left _ -> return $ Nothing
                     Right transports -> go transports
   where
     go ((_, t) : ts) = do
         mbS <- Ex.try $ connectTransport t
         case mbS of
-            Left (e :: DBusError) -> go ts
-            Right s -> return $ Just s
+            Left (_ :: DBusError) -> go ts
+            Right s' -> return $ Just s'
     go [] = return Nothing

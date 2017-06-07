@@ -6,23 +6,22 @@
 module DBus.Wire where
 
 
-import           Control.Applicative ((<$>), (<*>))
+import           Control.Applicative          ((<$>), (<*>))
 import           Control.Monad
-import           Control.Monad.Catch (MonadThrow, throwM)
+import           Control.Monad.Catch          (MonadThrow, throwM)
 import           Control.Monad.RWS
 import           Control.Monad.Reader
-import           Control.Monad.State
-import           Control.Monad.Trans
-import qualified Data.Binary.Get as B
-import qualified Data.Binary.IEEE754 as B
-import qualified Data.ByteString as BS
+import qualified Data.Binary.Get              as B
+import qualified Data.Binary.IEEE754          as B
+import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Lazy.Builder as BS
-import qualified Data.Conduit as C
+import qualified Data.Conduit                 as C
+import           Data.Functor.Identity        (Identity(..))
 import           Data.Int
 import           Data.Singletons
 import           Data.Singletons.Prelude.List
-import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
+import qualified Data.Text                    as Text
+import qualified Data.Text.Encoding           as Text
 import           Data.Word
 
 import           DBus.Types
@@ -54,7 +53,7 @@ alignment TypeVariant = 1
 alignment (TypeArray _) = 4
 alignment (TypeStruct _) = 8
 alignment (TypeDict _ _) = 8
-
+alignment _ = error "alignment not defined for Unit and DictEntry"
 
 data Endian = Little | Big
                        deriving (Show, Eq, Enum, Bounded)
@@ -75,10 +74,10 @@ putSize :: MonadState Int m => Int -> m ()
 putSize i = modify (+i)
 
 alignPut :: Int -> DBusPut ()
-alignPut bytes = do
+alignPut bs = do
     s <- get
-    let align = ((-s) `mod` bytes)
-    replicateM align . tell $ BS.word8 0
+    let align = ((-s) `mod` bs)
+    replicateM_ align . tell $ BS.word8 0
     putSize align
 
 sizeOf :: Int -> Int -> DBusPut a -> DBusPut Int
@@ -90,14 +89,14 @@ sizeOf offset al' x = do
     let start = ((here `aligning` offsetA) + offset) `aligning` al
     return $ (fst (execRWS x s start)) - start
   where
-    aligning x al = x + ((-x) `mod` al)
+    aligning x' al = x' + ((-x') `mod` al)
 
 bytes :: (a -> BS.Builder)
       -> (a -> BS.Builder)
       -> Int
       -> a
       -> DBusPut ()
-bytes l b bytes x = alignPut bytes >> endian l b x >> putSize bytes
+bytes l b bs x = alignPut bs >> endian l b x >> putSize bs
 
 putWord8 :: Word8 -> DBusPut ()
 putWord8 x = (tell $ BS.word8 x) >> putSize 1
@@ -141,6 +140,7 @@ putText t = do
 putObjectPath :: ObjectPath -> DBusPut ()
 putObjectPath o = putText $ objectPathToText o
 
+putSignatures :: [DBusType] -> RWST Endian BS.Builder Int Identity ()
 putSignatures s = do
     let bs = toSignatures s
         len = BS.length bs
@@ -149,6 +149,7 @@ putSignatures s = do
     putByteString bs
     putWord8 0
 
+putDBV :: SingI t => DBusValue t -> DBusPut ()
 putDBV = putDBV' sing
 
 putDBV' :: Sing t -> DBusValue t -> DBusPut ()
@@ -173,7 +174,6 @@ putDBV' (STypeArray t) (DBVArray x) = do
     let al = alignment $ fromSing t
     size <- sizeOf 4 al content
     putWord32 $ fromIntegral size
-    s <- get
     alignPut al
     content
 putDBV' _ (DBVByteArray  x) = do
@@ -191,10 +191,12 @@ putDBV' (STypeDict kt vt) (DBVDict       x) =
         putWord32 . fromIntegral =<< sizeOf 4 8 content
         alignPut 8
         content
+putDBV' _ DBVUnit = error "putDBV' not defined for Unit"
 
 putStruct :: Sing a -> DBusStruct a -> DBusPut ()
 putStruct (SCons t SNil) (StructSingleton v) = putDBV' t v
 putStruct (SCons t ts) (StructCons v vs ) = putDBV' t v >> putStruct ts vs
+putStruct _ _ = error "putStruct: impossible case"
 
 runDBusPut :: Num s => r -> RWS r b s a -> b
 runDBusPut e x = snd $ evalRWS x e 0
@@ -217,9 +219,9 @@ getEndian l b = do
         Big ->  lift $ b
 
 alignGet :: Int -> DBusGet ()
-alignGet bytes = do
+alignGet bs = do
     s <- fromIntegral <$> lift B.bytesRead
-    let align = ((-s) `mod` bytes)
+    let align = ((-s) `mod` bs)
     lift $ B.skip align
 
 getting :: B.Get a -> B.Get a -> Int -> DBusGet a
@@ -263,6 +265,7 @@ getText = do
 getBool :: DBusGet Bool
 getBool = toEnum' <$> getWord32
 
+getSignatures :: ReaderT Endian B.Get [DBusType]
 getSignatures = do
     len <- getWord8
     bs <- lift $ B.getByteString (fromIntegral len)
@@ -271,6 +274,7 @@ getSignatures = do
          Nothing -> fail $ "could not parse signature" ++ show bs
          Just s -> return s
 
+getByteString :: MonadTrans t => Int -> t B.Get BS.ByteString
 getByteString = lift . B.getByteString
 
 getDBV :: SingI t => DBusGet (DBusValue t)
@@ -315,10 +319,12 @@ getDBV' (STypeDict k v) = do
     len <- getWord32
     alignGet 8
     DBVDict <$> getManyPairs (fromIntegral len) (SDBusSimpleType k) v
+getDBV' _ = error "getDBV not defined for DictEntry and Unit"
 
 getStruct :: Sing ts -> DBusGet (DBusStruct ts)
 getStruct (SCons t SNil) = StructSingleton <$> getDBV' t
 getStruct (SCons t ts) = StructCons <$> getDBV' t <*> getStruct ts
+getStruct SNil = error "getStruct: Empty struct is impossible"
 
 getMany :: Int64 -> Sing t -> DBusGet [DBusValue t]
 getMany len t = do

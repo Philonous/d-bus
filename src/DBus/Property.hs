@@ -3,16 +3,13 @@
 
 module DBus.Property where
 
-import           Control.Applicative
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Reader
-import           Control.Monad.Trans
 import           Control.Monad.Writer
 import qualified Data.Foldable as Foldable
-import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Singletons
 import           Data.Text (Text)
@@ -90,7 +87,7 @@ manageStmProperty :: (Representable t, Eq t) =>
                   -> IO ()
 manageStmProperty prop get con = do
     let sendSig v = emitPropertyChanged prop v con
-    forkIO $ onEdge sendSig
+    _ <- forkIO $ onEdge sendSig
     return ()
   where
     onEdge f = do
@@ -105,6 +102,7 @@ manageStmProperty prop get con = do
         go  f x'
 
 -- | Interface for D-BUs properties
+propertiesInterfaceName :: Text
 propertiesInterfaceName = "org.freedesktop.DBus.Properties"
 
 -- | Create a propertyChangedSignal for a property
@@ -135,7 +133,7 @@ propertyChangedSignal prop x =
                    , signalMember = "PropertiesChanged"
                    , signalBody = flattenRep $ toRep
                        ( iface
-                       , Map.empty :: Map.Map Text (DBusValue (TypeVariant))
+                       , Map.empty :: Map.Map Text (DBusValue 'TypeVariant)
                        , [name]
                        )
                    }
@@ -212,7 +210,7 @@ propertyToTVar rp con = do
                       Nothing -> do
                           eniv <- getProperty rp con
                           case eniv of
-                           Left e -> return () -- @TODO
+                           Left _e -> return () -- @TODO
                            Right nv -> atomically $ writeTVar tv nv
                       Just v -> atomically $ writeTVar tv v
             ) con

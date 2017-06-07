@@ -19,7 +19,7 @@ litStruct :: [ExpQ] -> ExpQ
 litStruct xs = foldr cons (sing $ last xs) $ init xs
   where
     sing nm = (appE (conE 'StructSingleton) nm)
-    cons nm xs = (appE (appE (conE 'StructCons) nm) xs)
+    cons nm xs' = (appE (appE (conE 'StructCons) nm) xs')
 
 litStructPat :: [PatQ] -> PatQ
 litStructPat xs = foldr cons (sing $ last xs) $ init xs
@@ -35,12 +35,14 @@ caseMaybes ((tmp,x):xs) e =
          , match (conP 'Just [varP x]) (normalB $ caseMaybes xs e) []
          ]
 
+fromTyVarBndr :: TyVarBndr -> Type
 fromTyVarBndr (PlainTV n) = VarT n
-fromTyVarBndr (KindedTV n k) = VarT n
+fromTyVarBndr (KindedTV n _) = VarT n
 
 fromConstr :: Con -> (Name, [Type])
 fromConstr (NormalC n stps) = (n, map snd stps)
 fromConstr (RecC n vstps)   = (n, map (\(_,_,t) -> t) vstps)
+fromConstr _ = error "fromConstr only handles NormalC and RecC"
 
 tyVarName :: TyVarBndr -> Name
 tyVarName (PlainTV n) = n
@@ -83,18 +85,20 @@ relevantTyVars constrs = concatMap tyVars constrs
 --
 -- * For constructors with multiple members, the translated members are stored in a
 --  @Struct@
+makeRepresentable :: Name -> Q [Dec]
 makeRepresentable name = do
     TyConI t <- reify name
-    let (numTyParams, tyVarNames, cons) = case t of
+    let (_numTyParams, tyVarNames, cons) = case t of
 #if MIN_VERSION_template_haskell(2,11,0)
             NewtypeD _ _ tvs _ c _ -> (length tvs, tyVarName <$> tvs, [c])
-            DataD _ _ tvs _ cs _ -> (length tvs, tyVarName <$> tvs, cs)
+            DataD _ _ tvs _ cs' _ -> (length tvs, tyVarName <$> tvs, cs')
 #else
             NewtypeD _ _ tvs c _ -> (length tvs, tyVarName <$> tvs, [c])
             DataD _ _ tvs cs _ -> (length tvs, tyVarName <$> tvs, cs)
 #endif
-        ctx1 = mapM (classP ''SingI . (:[]) . appT (conT ''RepType)) (varT <$> (relevantTyVars cons))
-        ctx2 = mapM (classP ''Representable . (:[])) (varT <$> relevantTyVars cons)
+            _ -> error "makeReprsentable only handles Data and Newtype declarations"
+        ctx1 = mapM (appT (conT ''SingI) . appT (conT ''RepType)) (varT <$> (relevantTyVars cons))
+        ctx2 = mapM (appT (conT  ''Representable)) (varT <$> relevantTyVars cons)
         ctx = liftM2 (++) ctx1 ctx2
         fullType = (foldl appT (conT name) (varT <$> tyVarNames))
         iHead = appT (conT ''Representable) fullType
@@ -103,9 +107,9 @@ makeRepresentable name = do
         True -> enumerate $ map fst cs
         False -> case map fromConstr cons of
             [] -> fail "Can't make representation of empty data type"
-            cs | (all (null . snd) cs) -> enumerate $ map fst cs
+            cs' | (all (null . snd) cs) -> enumerate $ map fst cs'
             [(conName, fields)] -> oneCon conName fields
-            cs -> multiCon cs
+            cs' -> multiCon cs'
     inst <- instanceD ctx iHead
         [ tySynInstD ''RepType $ tySynEqn [fullType] repType
         , funD 'toRep toClauses
@@ -113,6 +117,7 @@ makeRepresentable name = do
         ]
     return [inst]
   where
+
     oneCon conName fieldTypes = do
         (repType
           , (toPat, toBD)
@@ -122,7 +127,7 @@ makeRepresentable name = do
                , [clause [fromPat] (normalB fromBD) []]
                )
     enumerate conNames
-        = return ( [t| 'DBusSimpleType TypeByte |]
+        = return ( [t| 'DBusSimpleType 'TypeByte |]
                  , for (zip conNames [0..]) $ \(cn, i) ->
                        (clause [conP cn []] (normalB . appE (conE 'DBVByte)
                                                      . litE $ integerL i) [])
@@ -157,13 +162,12 @@ makeRepresentable name = do
                       , clause [fromPat] (normalB fromBD) []
                       )
 
-        return ( [t| TypeStruct '[ 'DBusSimpleType TypeByte, TypeVariant] |]
+        return ( [t| 'TypeStruct '[ 'DBusSimpleType 'TypeByte, 'TypeVariant] |]
                , map fst clauses
                , map snd clauses
                )
     singleConstructor conName [] = do
-        var <- newName "x"
-        return $ ( [t| 'DBusSimpleType TypeByte |]
+        return $ ( [t| 'DBusSimpleType 'TypeByte |]
                  , ( conP conName []
                    , [| DBVByte 0|]
                    )
@@ -209,13 +213,12 @@ makeRepresentable name = do
 makeRepresentableTuple :: Int -> Q Dec
 makeRepresentableTuple num = do
     let names = take num $ map (varT . mkName . (:[])) ['a' .. 'z']
-        ctx = sequence $ classP ''Representable . (:[]) <$> names
+        ctx = sequence $ appT (conT  ''Representable) <$> names
         tp = (foldl appT (tupleT num) names)
         iHead = appT (conT ''Representable)
                      (foldl appT (tupleT num) names)
         tpList = foldr (appT . appT promotedConsT) promotedNilT
                  (appT (conT ''RepType) <$> names)
-        repTp = appT (promotedT 'TypeStruct) tpList
     varNames <- replicateM num (newName "x")
     tmpNames <- replicateM num (newName "mbx")
     instanceD ctx iHead

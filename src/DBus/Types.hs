@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RankNTypes #-}
@@ -7,17 +8,16 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
+
 module DBus.Types where
 
 import           Control.Applicative
-import           Control.Applicative ((<$>), (<*>))
-import           Control.Concurrent
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.Except
-import           Control.Monad.Trans
 import           Control.Monad.Writer.Strict
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS
@@ -60,10 +60,12 @@ data ObjectPath = ObjectPath { opAbsolute :: Bool
 type InterfaceName = Text
 type MemberName = Text
 
+opNode :: ObjectPath -> ObjectPath
 opNode op = ObjectPath { opAbsolute = False
                        , opParts = take 1 . reverse $ opParts op
                        }
 
+opPath :: ObjectPath -> ObjectPath
 opPath op = ObjectPath { opAbsolute = opAbsolute op
                        , opParts = case opParts op of
                            [] -> []
@@ -75,12 +77,14 @@ newtype Signature = Signature {fromSignature :: [DBusType]}
                   deriving (Show, Eq)
 
 -- | Parse an object path. Contrary to the standard, empty path parts are ignored
+objectPath :: Text -> ObjectPath
 objectPath txt = case Text.uncons txt of
     Just ('/', rest) -> ObjectPath True
                              $ filter (not. Text.null) $ Text.splitOn "/" rest
     Just _ -> ObjectPath False $ filter (not. Text.null) $ Text.splitOn "/" txt
     Nothing -> ObjectPath False []
-objectPathToText (ObjectPath abs parts) = (if abs then "/" else "")
+objectPathToText :: ObjectPath -> Text
+objectPathToText (ObjectPath abso parts) = (if abso then "/" else "")
                                           `Text.append` Text.intercalate "/" parts
 
 instance Show ObjectPath where
@@ -99,9 +103,11 @@ isPathPrefix p x = case stripObjectPrefix p x of
     Nothing -> False
     Just _ -> True
 
+isRoot :: ObjectPath -> Bool
 isRoot (ObjectPath True p) = null p
 isRoot _ = False
 
+isEmpty :: ObjectPath -> Bool
 isEmpty (ObjectPath False p) = null p
 isEmpty _ = False
 
@@ -185,6 +191,7 @@ singletons [d|
   flattenRepType t@(TypeVariant)  = [t]
   |]
 
+
 -- | A Transformer for (IO) actions that might want to send a signal.
 newtype MethodHandlerT m a =
     MHT { unMHT :: ExceptT MsgError (WriterT [SomeSignal] m) a}
@@ -218,7 +225,7 @@ instance Monad m => MonadPlus (MethodHandlerT m) where
     mplus (MHT m) (MHT n) = MHT . ExceptT $ do
         res <- runExceptT m
         case res of
-         Left e -> runExceptT n
+         Left _e -> runExceptT n
          Right r -> return $ Right r
 
 runMethodHandlerT :: MethodHandlerT m a -> m (Either MsgError a, [SomeSignal])
@@ -287,11 +294,11 @@ type family ArgsOf x :: Parity where
 
 type family ArgParity (x :: [DBusType]) :: Parity where
     ArgParity '[] = 'Null
-    ArgParity (x ': xs) = Arg (ArgParity xs)
+    ArgParity (x ': xs) = 'Arg (ArgParity xs)
 
 infixr 0 :>
 data ArgumentDescription parity where
-    (:>) :: Text -> ArgumentDescription n -> ArgumentDescription (Arg n)
+    (:>) :: Text -> ArgumentDescription n -> ArgumentDescription ('Arg n)
     Done :: ArgumentDescription 'Null
             deriving (Typeable)
 
@@ -322,8 +329,8 @@ argsToValues (SDBA (a :: DBusArguments t)) = argsToValues' (sing :: Sing t) a
   where
     argsToValues' :: Sing ts -> DBusArguments ts -> [SomeDBusValue]
     argsToValues' (SNil) ArgsNil = []
-    argsToValues' (SCons t ts) (ArgsCons a as) =
-        withSingI t $ (DBV a) : argsToValues' ts as
+    argsToValues' (SCons t ts) (ArgsCons a' as) =
+        withSingI t $ (DBV a') : argsToValues' ts as
 
 argsToStruct :: DBusArguments (t ': ts) -> DBusStruct (t ': ts)
 argsToStruct (ArgsCons x ArgsNil) = StructSingleton x
@@ -342,7 +349,7 @@ maybeArgsToStruct (args :: DBusArguments (ts :: [DBusType])) =
         sings = sing :: Sing ss
     in case singt of
         SNil -> Nothing
-        SCons t' ts'  -> case singt %~ sings of
+        SCons _ ts'  -> case singt %~ sings of
             Proved Refl -> withSingI ts' (Just $ argsToStruct args)
             Disproved _ -> Nothing
 
@@ -371,6 +378,7 @@ instance Eq (DBusStruct t) where
     StructSingleton x == StructSingleton y = x == y
     StructCons x xs == StructCons y ys =
         x == y && xs == ys
+    _ == _ = False -- Why do we need this?
 
 data SomeDBusStruct where
     SDBS :: SingI ts => DBusStruct ts -> SomeDBusStruct
@@ -383,28 +391,29 @@ showStruct (SCons t SNil) (StructSingleton x) =
     withSingI t $ "StructSingleton (" ++ show x ++ ")"
 showStruct (SCons t ts ) (StructCons x xs) =
     withSingI t $ "StructCons (" ++ show x  ++ ") (" ++ showStruct ts xs ++ ")"
+showStruct _ _ = error "showStruct: Impossible arguments. This is a bug"
 
 data DBusValue :: DBusType -> * where
-    DBVByte       :: Word8         -> DBusValue ('DBusSimpleType TypeByte)
-    DBVBool       :: Bool          -> DBusValue ('DBusSimpleType TypeBoolean)
-    DBVInt16      :: Int16         -> DBusValue ('DBusSimpleType TypeInt16)
-    DBVUInt16     :: Word16        -> DBusValue ('DBusSimpleType TypeUInt16)
-    DBVInt32      :: Int32         -> DBusValue ('DBusSimpleType TypeInt32)
-    DBVUInt32     :: Word32        -> DBusValue ('DBusSimpleType TypeUInt32)
-    DBVInt64      :: Int64         -> DBusValue ('DBusSimpleType TypeInt64)
-    DBVUInt64     :: Word64        -> DBusValue ('DBusSimpleType TypeUInt64)
-    DBVDouble     :: Double        -> DBusValue ('DBusSimpleType TypeDouble)
-    DBVUnixFD     :: Word32        -> DBusValue ('DBusSimpleType TypeUnixFD)
-    DBVString     :: Text     -> DBusValue ('DBusSimpleType TypeString)
-    DBVObjectPath :: ObjectPath    -> DBusValue ('DBusSimpleType TypeObjectPath)
-    DBVSignature  :: [DBusType]    -> DBusValue ('DBusSimpleType TypeSignature)
-    DBVVariant    :: (SingI t )    => DBusValue t -> DBusValue TypeVariant
-    DBVArray      :: [DBusValue a] -> DBusValue (TypeArray a)
-    DBVByteArray  :: BS.ByteString -> DBusValue (TypeArray ('DBusSimpleType TypeByte))
-    DBVStruct     :: DBusStruct ts -> DBusValue (TypeStruct ts)
+    DBVByte       :: Word8         -> DBusValue ('DBusSimpleType 'TypeByte)
+    DBVBool       :: Bool          -> DBusValue ('DBusSimpleType 'TypeBoolean)
+    DBVInt16      :: Int16         -> DBusValue ('DBusSimpleType 'TypeInt16)
+    DBVUInt16     :: Word16        -> DBusValue ('DBusSimpleType 'TypeUInt16)
+    DBVInt32      :: Int32         -> DBusValue ('DBusSimpleType 'TypeInt32)
+    DBVUInt32     :: Word32        -> DBusValue ('DBusSimpleType 'TypeUInt32)
+    DBVInt64      :: Int64         -> DBusValue ('DBusSimpleType 'TypeInt64)
+    DBVUInt64     :: Word64        -> DBusValue ('DBusSimpleType 'TypeUInt64)
+    DBVDouble     :: Double        -> DBusValue ('DBusSimpleType 'TypeDouble)
+    DBVUnixFD     :: Word32        -> DBusValue ('DBusSimpleType 'TypeUnixFD)
+    DBVString     :: Text     -> DBusValue ('DBusSimpleType 'TypeString)
+    DBVObjectPath :: ObjectPath    -> DBusValue ('DBusSimpleType 'TypeObjectPath)
+    DBVSignature  :: [DBusType]    -> DBusValue ('DBusSimpleType 'TypeSignature)
+    DBVVariant    :: (SingI t )    => DBusValue t -> DBusValue 'TypeVariant
+    DBVArray      :: [DBusValue a] -> DBusValue ('TypeArray a)
+    DBVByteArray  :: BS.ByteString -> DBusValue ('TypeArray ('DBusSimpleType 'TypeByte))
+    DBVStruct     :: DBusStruct ts -> DBusValue ('TypeStruct ts)
     DBVDict       :: [(DBusValue ('DBusSimpleType k) ,DBusValue v)]
-                                   -> DBusValue (TypeDict k v)
-    DBVUnit       :: DBusValue TypeUnit -- How to get rid of this?
+                                   -> DBusValue ('TypeDict k v)
+    DBVUnit       :: DBusValue 'TypeUnit -- How to get rid of this?
     -- Unit isn't an actual DBus type and is included only for use with methods
     -- that don't return a value.
 
@@ -437,7 +446,6 @@ instance Eq (DBusValue t) where
     DBVUnit         ==  DBVUnit         = True
     DBVArray      x == DBVByteArray   y = BS.pack (map (\(DBVByte w) -> w) x) == y
     DBVByteArray  x == DBVArray       y = BS.pack (map (\(DBVByte w) -> w) y) == x
-    _               ==  _               = False
 
 castDBV :: (SingI s, SingI t) => DBusValue s -> Maybe (DBusValue t)
 castDBV (v :: DBusValue s)
@@ -461,7 +469,7 @@ dbusSValue :: SingI t => SomeDBusValue -> Maybe (DBusValue ('DBusSimpleType t))
 dbusSValue (DBV v) = castDBV v
 
 -- | Extract a DBusValue from a Variant iff the type matches or return nothing
-fromVariant :: SingI t => DBusValue TypeVariant -> Maybe (DBusValue t)
+fromVariant :: SingI t => DBusValue 'TypeVariant -> Maybe (DBusValue t)
 fromVariant (DBVVariant v) = castDBV v
 
 instance SingI t => Show (DBusValue t) where
@@ -486,18 +494,18 @@ instance SingI t => Show (DBusValue t) where
             else ""
 
 
-    show y@(DBVByteArray  x) = "DBVByteArray " ++ show x
-    show y@(DBVStruct     x :: DBusValue t) = case (sing :: Sing t) of
+    show (DBVByteArray  x) = "DBVByteArray " ++ show x
+    show (DBVStruct     x :: DBusValue t) = case (sing :: Sing t) of
         STypeStruct ts -> withSingI ts $
             "DBVStruct (" ++ show x ++ ")"
-    show y@(DBVVariant   x ) = "DBVVariant (" ++ show x ++ ")"
+    show (DBVVariant   x ) = "DBVVariant (" ++ show x ++ ")"
     show y@(DBVDict      x :: DBusValue t ) = case (sing :: Sing t) of
         STypeDict kt vt -> withSingI kt $ withSingI vt $
             "DBDict (" ++ show x ++ ")" ++
               if null x
               then " :: " ++ show (typeOf y)
               else ""
-    show y@(DBVUnit       ) = "DBVUnit"
+    show (DBVUnit       ) = "DBVUnit"
 
 typeOf :: SingI t => DBusValue t -> DBusType
 typeOf (_ :: DBusValue a) = fromSing (sing :: SDBusType a)
@@ -557,6 +565,12 @@ class SingI (RepType a) => Representable a where
     toRep :: a -> DBusValue (RepType a)
     -- | Conversion from D-Bus to Haskell types.
     fromRep :: DBusValue (RepType a) -> Maybe a
+
+
+type family FromTypeList t where
+  FromTypeList '[] = 'TypeUnit
+  FromTypeList '[t] = t
+  FromTypeList ts = 'TypeStruct ts
 
 
 ------------------------------------------------
@@ -637,6 +651,7 @@ instance Monoid Object where
     mempty = Object Map.empty
     mappend (Object o1) (Object o2) = Object $ Map.unionWith (<>) o1 o2
 
+object :: Text -> Interface -> Object
 object interfaceName iface = Object $ Map.singleton interfaceName iface
 
 
@@ -646,7 +661,8 @@ instance Monoid Objects where
     mempty = Objects Map.empty
     mappend (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2
 
-root path object = Objects $ Map.singleton path object
+root :: ObjectPath -> Object -> Objects
+root path obj = Objects $ Map.singleton path obj
 
 --------------------------------------------------
 -- Connection and Message
@@ -687,6 +703,7 @@ data MatchSignal = MatchSignal { matchInterface :: Maybe Text
                                , matchSender :: Maybe Text
                                } deriving (Show, Eq, Ord)
 
+anySignal :: MatchSignal
 anySignal = MatchSignal Nothing Nothing Nothing Nothing
 
 type SignalSlots = [ (( Match Text

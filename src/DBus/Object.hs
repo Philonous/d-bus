@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,31 +14,21 @@
 module DBus.Object where
 
 import           Control.Applicative ((<$>))
-import           Control.Concurrent.STM
-import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad (liftM)
-import           Control.Monad.Except
-import           Control.Monad.Trans
-import           Data.List (intercalate, find)
+import           Data.List (find)
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Maybe
-import           Data.Monoid
-import           Data.Singletons.TH
-import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Unsafe.Coerce (unsafeCoerce)
 
 import           DBus.Types
-import           DBus.Representable
 import           DBus.Error
 import           DBus.Property
-import           DBus.Signal
 import           DBus.Method
 
 
+findProperty :: Object -> Text -> Text -> Either MsgError SomeProperty
 findProperty (Object o) ifaceName prop
     = case Map.lookup ifaceName o of
         Nothing -> Left noSuchInterface
@@ -48,11 +37,12 @@ findProperty (Object o) ifaceName prop
             Nothing -> Left noSuchProperty
             Just p -> Right p
 
+getAllProperties :: Interface -> MethodHandlerT IO SomeDBusArguments
 getAllProperties iface = liftM (SDBA . singletonArg . toRep . mconcat)
                          . forM (interfaceProperties iface)
                          $ \(SomeProperty p) ->
     case propertyGet p of
-        Nothing -> return (Map.empty :: Map Text (DBusValue TypeVariant))
+        Nothing -> return (Map.empty :: Map Text (DBusValue 'TypeVariant))
         Just g -> flip catchMethodError (\_ -> return Map.empty) $ do
             res <-  g
             return $ Map.singleton (propertyName p) (DBVVariant res)
@@ -70,7 +60,7 @@ handleProperty o _ "Get" [mbIface, mbProp]
             case propertyGet prop of
                 Nothing -> Left propertyNotReadable
                 Just rd -> Right $ SDBA . singletonArg . DBVVariant <$> rd)
-handleProperty o path "Set" [mbIface , mbProp, mbVal]
+handleProperty o _ "Set" [mbIface , mbProp, mbVal]
     | Just ifaceName <- fromRep =<< dbusValue mbIface
     , Just propName <- fromRep =<< dbusValue mbProp
     = findProperty o ifaceName propName
@@ -82,7 +72,7 @@ handleProperty o path "Set" [mbIface , mbProp, mbVal]
               invalidated <- wt v
               when invalidated $ propertyChanged prop v
               return (SDBA ArgsNil))
-handleProperty (Object o) path "GetAll" [mbIface]
+handleProperty (Object o) _ "GetAll" [mbIface]
     | Just ifaceName <- fromRep =<< dbusValue mbIface
     = case Map.lookup ifaceName o of
         Just iface -> Right $ getAllProperties iface
@@ -100,7 +90,7 @@ callAtPath :: Objects
            -> Text.Text
            -> [SomeDBusValue]
            -> Either MsgError (MethodHandlerT IO SomeDBusArguments)
-callAtPath (Objects root) path interface member args = case Map.lookup path root of
+callAtPath (Objects root') path interface member args = case Map.lookup path root' of
     Nothing -> Left (MsgError "org.freedesktop.DBus.Error.Failed"
                                      (Just . Text.pack $ "No such object "
                                                           ++ show path)

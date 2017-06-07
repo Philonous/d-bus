@@ -10,7 +10,6 @@ module DBus.Introspect where
 import           Blaze.ByteString.Builder
 import           Control.Applicative ((<$>))
 import           Control.Exception (SomeException)
-import           Control.Monad
 import qualified Data.ByteString as BS
 import           Data.Conduit (($$), ($=))
 import           Data.Conduit.List (consume, sourceList)
@@ -25,7 +24,6 @@ import           Data.Singletons
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
-import qualified Data.Text.Lazy as LText
 import           Data.Typeable (Typeable)
 import           Data.XML.Pickle hiding (Result)
 import           Data.XML.Types
@@ -33,8 +31,6 @@ import           Text.XML.Stream.Parse
 import           Text.XML.Stream.Render
 import           Text.XML.Unresolved (toEvents, fromEvents)
 
-import           DBus.Object
-import           DBus.Representable
 import           DBus.Signature
 import           DBus.Types
 import           DBus.Method
@@ -99,8 +95,8 @@ data INode = INode { nodeName :: Maybe Text
                    } deriving (Eq, Show, Data, Typeable)
 
 xpAnnotation :: PU [Node] Annotation
-xpAnnotation = xpWrap (\(name, content) -> Annotation name content)
-                      (\(Annotation name content) -> (name, content))  $
+xpAnnotation = xpWrap (\(name, content') -> Annotation name content')
+                      (\(Annotation name content') -> (name, content'))  $
                       xpElemAttrs "annotation"
                           (xp2Tuple (xpAttribute "name" xpText)
                                     (xpAttribute "value" xpText))
@@ -112,6 +108,7 @@ xpSignature = xpPartial (eitherParseSig . Text.encodeUtf8)
 xpDirection :: PU Text IDirection
 xpDirection = xpPartial directionFromText directionToText
 
+xpPropertyAccess :: PU Text PropertyAccess
 xpPropertyAccess = xpPartial propertyAccessFromText propertyAccessToText
 
 xpArgument :: PU [Node] IArgument
@@ -201,9 +198,9 @@ nodeToXml node = toByteString . mconcat . runIdentity $
     doc = Document prologue (pickle (xpRoot . xpUnliftElems $ xpNode) node) []
 
 introspectMethods :: [Method] -> [IMethod]
-introspectMethods = map introspectMethod
+introspectMethods = map introspectMethod'
   where
-    introspectMethod m = IMethod (methodName m) (toArgs m) []
+    introspectMethod' m = IMethod (methodName m) (toArgs m) []
     toArgs m@(Method _ _ argDs resDs) =
         let (args, res) = methodSignature m
             (ts, rs) = argDescriptions argDs resDs
@@ -383,9 +380,11 @@ introspectObject recurse path (Object ifaces) sub
     hasInterface :: Text -> Map Text Interface -> Bool
     hasInterface iname o = isJust $ Map.lookup iname o
 
+uncurry3 :: (t3 -> t2 -> t1 -> t) -> (t3, t2, t1) -> t
 uncurry3 f (x, y, z) = f x y z
 
-introspectObjects path recursive objs@(Objects os) =
+introspectObjects :: ObjectPath -> Bool -> Objects -> INode
+introspectObjects path recursive (Objects os) =
     case Map.updateLookupWithKey (\_ _ -> Nothing) path os of
            (Nothing, _) ->
                let oss = Map.mapKeys (fromMaybe "" . stripObjectPrefix path) os
@@ -401,17 +400,18 @@ introspectObjects path recursive objs@(Objects os) =
 
 
 introspect :: ObjectPath -> Bool -> Objects -> Text
-introspect path recursive object = Text.decodeUtf8 . nodeToXml
-                                 $ introspectObjects path recursive object
+introspect path recursive object' = Text.decodeUtf8 . nodeToXml
+                                    $ introspectObjects path recursive object'
 
 introspectMethod :: ObjectPath -> Bool -> Objects -> Method
-introspectMethod path recursive object =
-    Method (repMethod $ (return (introspect path recursive object) :: IO Text))
+introspectMethod path recursive object' =
+    Method (repMethod $ (return (introspect path recursive object') :: IO Text))
            "Introspect"
            Done
            ("xml_data" :> Done)
 
 
+introspectableInterface :: ObjectPath -> Bool -> Objects -> Interface
 introspectableInterface path recursive o =
     Interface{ interfaceMethods = [introspectMethod path recursive o]
              , interfaceSignals = []

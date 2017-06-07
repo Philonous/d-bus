@@ -2,17 +2,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 module DBus.Signal where
 
-import           Control.Applicative
 import           Control.Concurrent.STM
 import           Control.Monad
 import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Trans
 import           Control.Monad.Writer
 import qualified Data.List as List
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import           Data.Maybe
-import           Data.Monoid
 import           Data.Singletons
 import           Data.Singletons.Decide
 import           Data.Singletons.Prelude.List
@@ -92,7 +88,7 @@ renderRule mr = Text.concat . TextL.toChunks . TB.toLazyText .
     fromMessageType MessageTypeMethodReturn = "method_return"
     fromMessageType MessageTypeSignal = "signal"
     fromMessageType MessageTypeError = "error"
-    ft = TB.fromText
+    fromMessageType _ = "fromMessageType: Invalid and Other not handled"
     num i = TB.fromText . Text.pack $ show i
 
 -- | Match a Signal against a rule. The argN, argNPath and arg0namespace
@@ -154,7 +150,7 @@ addSignalHandler ms rules m dbc = do
 castSignalBody :: SingI a => SomeSignal -> Maybe (DBusValue a)
 castSignalBody (SomeSignal s) =
     case (signalBody s) of
-     sr@(r :: DBusArguments ats) ->
+     (r :: DBusArguments ats) ->
          -- Use fix to access the return type (We only care about the type)
             fix $ \(_ :: Maybe (DBusValue ret)) ->
                   case sing :: Sing ret of
@@ -173,6 +169,7 @@ castSignalBody (SomeSignal s) =
                               case at %~ (sing :: Sing ret) of
                                   Proved Refl -> Just r'
                                   Disproved _ -> Nothing
+                          _ -> error "castSignalBody: impossible case"
 
 
 -- | Add a match rule (computed from the SignalDescription) and install a
@@ -206,9 +203,9 @@ signalChan :: MatchSignal
            -> DBusConnection
            -> IO (TChan SomeSignal)
 signalChan match dbc = do
-    signalChan <- newTChanIO
-    addSignalHandler match mempty (atomically . writeTChan signalChan) dbc
-    return signalChan
+    sChan <- newTChanIO
+    addSignalHandler match mempty (atomically . writeTChan sChan) dbc
+    return sChan
 
 signalChan' :: Representable a =>
                SignalDescription (FlattenRepType (RepType a))
@@ -217,10 +214,15 @@ signalChan' :: Representable a =>
             -> DBusConnection
             -> IO (TChan a)
 signalChan' desc sender rules con = do
-    signalChan <- newTChanIO
-    handleSignal desc sender rules (atomically . writeTChan signalChan) con
-    return signalChan
+    sChan <- newTChanIO
+    handleSignal desc sender rules (atomically . writeTChan sChan) con
+    return sChan
 
+createSignal ::
+     Representable a
+  => SignalDescription (FlattenRepType (RepType a))
+  -> a
+  -> Signal (FlattenRepType (RepType a))
 createSignal desc x = Signal{ signalPath = signalDPath desc
                             , signalInterface = signalDInterface desc
                             , signalMember = signalDMember desc
@@ -243,6 +245,7 @@ signal desc (x :: a) =
 signal' :: Monad m => SomeSignal -> MethodHandlerT m ()
 signal' sig = MHT $ tell [sig]
 
+emitSignal' :: SomeSignal -> DBusConnection -> IO ()
 emitSignal' (SomeSignal s) con = do
     sid <- atomically $ dBusCreateSerial con
     logDebug $ "Emitting signal (ID = " ++ show sid ++ "): " ++ show s

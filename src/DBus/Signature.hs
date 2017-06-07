@@ -1,17 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 module DBus.Signature where
 
-import           Control.Applicative ((<$>))
-import           Control.Monad
-import qualified Data.Attoparsec.ByteString as AP
+import           Control.Applicative              ((<$>))
+import qualified Data.Attoparsec.ByteString       as AP
 import qualified Data.Attoparsec.ByteString.Char8 as AP
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteString.Lazy.Builder as BS
+import qualified Data.ByteString                  as BS
+import qualified Data.ByteString.Lazy             as BSL
+import qualified Data.ByteString.Lazy.Builder     as BS
 import           Data.Char
-import qualified Data.IntMap as IMap
+import qualified Data.IntMap                      as IMap
 import           Data.Monoid
-import qualified Data.Text as Text
+import qualified Data.Text                        as Text
 
 import           DBus.Types
 
@@ -46,8 +45,14 @@ toSignature' (TypeDict kt vt) = BS.string8 "a{"
                                <> BS.char8 (stToSignature kt)
                                <> toSignature' vt
                                <> BS.char8 '}'
+toSignature' (TypeDictEntry kt vt) = BS.string8 "e{"
+                               <> BS.char8 (stToSignature kt)
+                               <> toSignature' vt
+                               <> BS.char8 '}'
 toSignature' TypeVariant = BS.char8 'v'
+toSignature' TypeUnit = ""
 
+simpleTypeMap :: IMap.IntMap DBusSimpleType
 simpleTypeMap = IMap.fromList[ (ord 'y', TypeByte       )
                              , (ord 'b', TypeBoolean    )
                              , (ord 'n', TypeInt16      )
@@ -63,33 +68,37 @@ simpleTypeMap = IMap.fromList[ (ord 'y', TypeByte       )
                              , (ord 'g', TypeSignature  )
                              ]
 
+simpleType :: AP.Parser DBusSimpleType
 simpleType = do
     c <- AP.anyWord8
     case IMap.lookup (fromIntegral c) simpleTypeMap of
         Nothing -> fail "not a simple type"
         Just t -> return t
 
+dictEntrySignature :: AP.Parser DBusType
 dictEntrySignature = do
-    AP.char8 '{'
+    _ <- AP.char8 '{'
     kt <- simpleType
     vt <- signature
-    AP.string "}"
+    _ <- AP.string "}"
     return $ TypeDictEntry kt vt
 
 
+arraySignature :: AP.Parser DBusType
 arraySignature = do
-    AP.char8 'a'
+    _ <- AP.char8 'a'
     ((do TypeDictEntry kt vt <- dictEntrySignature
          return $ TypeDict kt vt)
       <> (TypeArray <$> signature))
 
 
-
+structSignature :: AP.Parser DBusType
 structSignature = do
-    AP.char '('
+    _ <- AP.char '('
     TypeStruct <$> AP.manyTill signature (AP.char ')')
 
 
+signature :: AP.Parser DBusType
 signature = AP.choice [ AP.char 'v' >> return TypeVariant
                       , arraySignature
                       , structSignature
@@ -115,7 +124,3 @@ parseSigs :: BS.ByteString -> Maybe [DBusType]
 parseSigs s = case eitherParseSigs s of
     Left _ -> Nothing
     Right r -> Just r
-
-
--- fromSignature (v:vs) = TypeVariant :
--- fromSignature "v" = Just TypeVariant

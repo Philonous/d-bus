@@ -5,15 +5,15 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module DBus.Method where
 
-import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.Trans
 import qualified Data.List as List
 import           Data.Singletons
 import           Data.Singletons.Prelude.List
-import           Data.Text (Text)
 import qualified Data.Text as Text
 
 import           DBus.Types
@@ -68,7 +68,7 @@ instance (RepMethod b, Representable a)
     type RepMethodValue (a -> b) = RepMethodValue b
     repMethod f = MAsk  $ \x -> case fromRep x of
         Nothing -> error "marshalling error" -- TODO
-        Just x -> repMethod $ f x
+        Just x' -> repMethod $ f x'
 
 runMethodW :: SingI at =>
                MethodWrapper at rt
@@ -81,7 +81,7 @@ runMethodW' :: Sing at
              -> MethodWrapper at rt
              -> Maybe (MethodHandlerT IO (DBusArguments rt))
 runMethodW' SNil         []         (MReturn f) = Just f
-runMethodW' (SCons t ts) (arg:args) (MAsk f)    = (runMethodW' ts args . f )
+runMethodW' (SCons _ ts) (arg:args) (MAsk f)    = (runMethodW' ts args . f )
                                                   =<< dbusValue arg
 runMethodW' _            _           _          = Nothing
 
@@ -103,6 +103,9 @@ methodSignature (Method m _ _ _) = methodWSignature m
 methodName :: Method -> Text.Text
 methodName (Method _ n _ _) = n
 
+argDescriptions :: ArgumentDescription a
+                -> ArgumentDescription b
+                -> ([Text.Text], [Text.Text])
 argDescriptions args ress = (adToList args, adToList ress)
 
 instance Show Method where

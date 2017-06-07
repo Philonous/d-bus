@@ -11,9 +11,7 @@ module DBus.Scaffold
   , def
   ) where
 
-import           Control.Applicative
 import           Control.Monad
-import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Char
 import           Data.Default
@@ -24,14 +22,10 @@ import           Data.Singletons.Prelude.List
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Language.Haskell.TH
-import           Language.Haskell.TH.Lib
 import           Language.Haskell.TH.Syntax
 
 import           DBus.Introspect
-import           DBus.Message
-import           DBus.Representable
 import           DBus.Types
-import           DBus.Property
 
 data DBusEndpointOptions =
   DBusEndpointOptions { methodNames   :: SomeMethodDescription -> Maybe String
@@ -39,8 +33,8 @@ data DBusEndpointOptions =
                       , signalNames   :: String -> String
                       }
 
-defaultDbusEndpointOptions :: DBusEndpointOptions
-defaultDbusEndpointOptions =
+defaultDBusEndpointOptions :: DBusEndpointOptions
+defaultDBusEndpointOptions =
     DBusEndpointOptions
     { methodNames  = \(SMD md) -> filterInterfaces (methodInterface md)
                                     . downcase . Text.unpack $ methodMember md
@@ -59,16 +53,13 @@ defaultDbusEndpointOptions =
     downcase (x:xs) = toLower x : xs
 
 instance Default DBusEndpointOptions where
-  def = defaultDbusEndpointOptions
+  def = defaultDBusEndpointOptions
 
 makeDbusEndpoints :: DBusEndpointOptions -> ObjectPath -> FilePath -> Q [Dec]
-makeDbusEndpoints conf root xmlFile = do -- @TODO: root
+makeDbusEndpoints conf _root xmlFile = do -- @TODO: root
   node <- readIntrospectXml xmlFile
   let methods = nodeMethodDescriptions node
       propDs = nodePropertyDescriptions node
-      sigDs = nodeSignals node
-      downcase [] = []
-      downcase (x:xs) = toLower x : xs
   mfs <- fmap catMaybes . forM methods $ \smd ->
             case methodNames conf smd of
              Nothing -> return Nothing
@@ -79,8 +70,6 @@ makeDbusEndpoints conf root xmlFile = do -- @TODO: root
   -- sigs <- forM sigDs $ \(ssd@(SSD sd)) ->
   --     liftSignalDescription () ssd
   return . concat $ mfs ++ props -- ++ sigs
-  where
-    for = flip fmap
 
 liftObjectPath :: ObjectPath -> ExpQ
 liftObjectPath op = [| objectPath $( liftText $ objectPathToText op) |]
@@ -151,6 +140,7 @@ nodePropertyDescriptions :: INode -> [PropertyDescription]
 nodePropertyDescriptions node =
   mapIInterfaces interfacPropertyDescriptions (fromMaybe "" $ nodeName node)
                  node
+liftText :: Text -> ExpQ
 liftText t = [|Text.pack $(liftString (Text.unpack  t))|]
 
 
@@ -163,22 +153,23 @@ arrows = flip $ foldr (\t ts -> appT (appT arrowT t) ts)
 tupleType :: [TypeQ] -> TypeQ
 tupleType xs = foldl (\ts t -> appT ts t) (tupleT (length xs)) xs
 
+promoteSimpleType :: Show a => a -> TypeQ
 promoteSimpleType t = promotedT (mkName (show t))
 
 promoteDBusType :: DBusType -> TypeQ
 promoteDBusType (DBusSimpleType t) = [t|'DBusSimpleType $(promoteSimpleType t)|]
-promoteDBusType (TypeArray t) = [t| TypeArray $(promoteDBusType t)|]
+promoteDBusType (TypeArray t) = [t| 'TypeArray $(promoteDBusType t)|]
 promoteDBusType (TypeStruct ts) =
     let ts' = promotedListT $ promoteDBusType <$> ts
-    in [t| TypeStruct $ts'|]
+    in [t| 'TypeStruct $ts'|]
 promoteDBusType (TypeDict k v) =
-    [t| TypeDict $(promoteSimpleType k)
+    [t| 'TypeDict $(promoteSimpleType k)
                  $(promoteDBusType v) |]
 promoteDBusType (TypeDictEntry k v) =
-    [t| TypeDictEntry $(promoteSimpleType k)
+    [t| 'TypeDictEntry $(promoteSimpleType k)
                       $(promoteDBusType v) |]
-promoteDBusType TypeVariant = [t| TypeVariant |]
-promoteDBusType TypeUnit = [t| TypeUnit |]
+promoteDBusType TypeVariant = [t| 'TypeVariant |]
+promoteDBusType TypeUnit = [t| 'TypeUnit |]
 
 readIntrospectXml :: FilePath -> Q INode
 readIntrospectXml interfaceFile = do
@@ -215,7 +206,6 @@ propertyFromDescription :: (PropertyDescription -> String)
                         -> PropertyDescription
                         -> Q [Dec]
 propertyFromDescription nameGen mbEntity pd = do
-    entName <- newName "entity"
     let rp ent = [|RP{ rpEntity = $ent
                      , rpObject = objectPath $(liftText $ pdObjectPath pd)
                      , rpInterface = $(liftText $ pdInterface pd)
@@ -223,7 +213,6 @@ propertyFromDescription nameGen mbEntity pd = do
                      } |]
         name = mkName $ nameGen pd
         entN = (mkName "entity")
-        typeName = mkName "t"
 
         arg = case mbEntity of
             Nothing -> [[t|Text|]]
@@ -273,7 +262,7 @@ toSings (iarg : iargs) =
 
 
 liftSignalDescription :: String -> SomeSignalDescription -> Q [Dec]
-liftSignalDescription nameString ssigDesc@(SSD (sigDesc :: SignalDescription a))
+liftSignalDescription nameString (SSD (sigDesc :: SignalDescription a))
     = do
     let name = mkName nameString
         ts = fromSing (sing :: (Sing a))

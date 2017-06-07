@@ -10,42 +10,28 @@
 
 module DBus.MainLoop where
 
-import           Control.Applicative
 import           Control.Concurrent
 import           Control.Concurrent.Async
-import           Control.Concurrent.MVar
 import           Control.Concurrent.STM
-import qualified Control.Exception as Ex
+import qualified Control.Exception            as Ex
 import           Control.Monad
-import           Control.Monad.Catch (MonadThrow, throwM)
-import           Control.Monad.Fix (mfix)
+import           Control.Monad.Catch          (throwM)
+import           Control.Monad.Fix            (mfix)
 import           Control.Monad.Trans
-import           Data.Binary.Get as B
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Lazy.Builder as BS
-import qualified Data.Conduit as C
-import qualified Data.Conduit.Binary as CB
-import qualified Data.Conduit.Text as CT
-import           Data.IORef
-import           Data.Map (Map)
-import qualified Data.Map as Map
-import           Data.Singletons
-import           Data.Text (Text)
-import qualified Data.Text as Text
-import           Data.Typeable (Typeable)
-import           Data.Word
-import           Foreign.C
-import           Network.Socket
+import qualified Data.Conduit                 as C
+import qualified Data.Conduit.Binary          as CB
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+import           Network.Socket               (Socket, socketToHandle)
+import           Network.Socket.ByteString    (send)
 import           System.Environment
 import           System.IO
 import           System.Log.Logger
 import           System.Mem.Weak
-
-import           Data.Attoparsec.ByteString as AP
-import           Data.List (intercalate)
-import           Data.Monoid
-import           Numeric
 
 import           DBus.Auth
 import           DBus.Error
@@ -54,9 +40,7 @@ import           DBus.MessageBus
 import           DBus.Object
 import           DBus.Transport
 import           DBus.Types
-import           DBus.Wire
 import           DBus.Signal
-import           DBus.Property
 import           DBus.Introspect
 
 handleMessage :: (MessageHeader -> [SomeDBusValue] -> IO ())
@@ -79,7 +63,7 @@ handleMessage handleCall handleSignals answerSlots signalSlots propertySlots
             handleCall header body
         MessageTypeMethodReturn -> handleReturn True
         MessageTypeError -> handleError
-        MessageTypeSignal -> handleSignal
+        MessageTypeSignal -> handleSignal'
         _ -> return ()
   where
     handleReturn nonError = case hFReplySerial $ fields header of
@@ -95,9 +79,9 @@ handleMessage handleCall handleSignals answerSlots signalSlots propertySlots
                               else Left body
     handleError = case hFReplySerial $ fields header of
         Nothing -> return () -- TODO: handle non-response errors
-        Just s -> handleReturn False
-    handleSignal = do
-      handleSignals header body
+        Just _ -> handleReturn False
+    handleSignal' = do
+      _ <- handleSignals header body
       sSlots <- atomically $ readTVar signalSlots
       let fs = fields header
       case () of
@@ -108,10 +92,10 @@ handleMessage handleCall handleSignals answerSlots signalSlots propertySlots
              -> case (iface, member) of
                  ( "org.freedesktop.DBus.Properties"
                   ,"PropertiesChanged")
-                     | [DBV pi, DBV uds, DBV invs] <- body
-                     , Just propIface <- fromRep =<< castDBV pi :: Maybe Text
+                     | [DBV pi', DBV uds, DBV invs] <- body
+                     , Just propIface <- fromRep =<< castDBV pi' :: Maybe Text
                      , Just updates <- fromRep =<< castDBV uds
-                                      :: Maybe (Map Text (DBusValue TypeVariant))
+                                      :: Maybe (Map Text (DBusValue 'TypeVariant))
                      , Just ivs <- (fromRep =<< castDBV invs :: Maybe [Text])
                        -> handlePropertyUpdates path propIface updates ivs
                  _ -> case filter (match4 ( Match iface
@@ -158,7 +142,7 @@ handleMessage handleCall handleSignals answerSlots signalSlots propertySlots
                     logDebug $ "Recevied property updates " ++ show updates
                                ++ " and invalidated propertied " ++ show ivs
                     forM_ hs $ \h -> forkIO $ h v
-    variantToDBV :: DBusValue TypeVariant -> SomeDBusValue
+    variantToDBV :: DBusValue 'TypeVariant -> SomeDBusValue
     variantToDBV (DBVVariant v) = DBV v
 
 -- | Create a message handler that dispatches matches to the methods in a root
@@ -173,7 +157,7 @@ objectRoot o conn header args | fs <- fields header
                               = Ex.handle (\e -> hPutStrLn stderr (show ( e:: Ex.SomeException))) $ do
     let errToErrMessage s e = errorMessage s (Just ser) sender (errorName e)
                                              (errorText e) (errorBody e)
-        mkReturnMethod s args = methodReturn s ser sender args
+        mkReturnMethod s args' = methodReturn s ser sender args'
     (ret, sigs) <- case callAtPath o path iface member args of
         Left e -> return (Left e, [])
         Right f -> do
@@ -188,16 +172,13 @@ objectRoot o conn header args | fs <- fields header
                                          `Text.append` Text.pack (show e)) [])
                                    , [])
                 Right r -> return r
-    serial <- atomically $ dBusCreateSerial conn
+    serial' <- atomically $ dBusCreateSerial conn
     forM_ sigs $ flip emitSignal' conn
     logDebug $ "method call returned " ++ show ret
     case ret of
-        Left err -> sendBS conn $ errToErrMessage serial err
-        Right r -> sendBS conn $ mkReturnMethod serial r
+        Left err -> sendBS conn $ errToErrMessage serial' err
+        Right r -> sendBS conn $ mkReturnMethod serial' r
     logDebug "done"
-
-  where notUnit (DBV DBVUnit) = False
-        notUnit _ = True
 objectRoot _ _ _ _ = return ()
 
 -- | Check whether connection is alive
@@ -258,11 +239,10 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
     addressString <- case transport of
         Session -> getEnv "DBUS_SESSION_BUS_ADDRESS"
         System -> do
-            fromEnv <- Ex.try $ getEnv "DBUS_SYSTEM_BUS_ADDRESS"
+            fromEnv <- lookupEnv "DBUS_SYSTEM_BUS_ADDRESS"
             case fromEnv of
-                Left (e :: Ex.SomeException) ->
-                    return "unix:path=/var/run/dbus/system_bus_socket"
-                Right addr -> return addr
+                Nothing -> return "unix:path=/var/run/dbus/system_bus_socket"
+                Just addr -> return addr
         Address addr -> return addr
     debugM "DBus" $ "connecting to " ++ addressString
     mbS <- connectString addressString
@@ -270,10 +250,10 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
         Nothing -> throwM (CouldNotConnect
                                    "All addresses failed to connect")
         Just s -> return s
-    sendCredentials s
+    _ <- sendCredentials s
     h <- socketToHandle s ReadWriteMode
     debugM "DBus" $ "Running SASL"
-    runSasl (\bs -> do
+    _ <- runSasl (\bs -> do
                   debugM "DBus.Sasl" $ "C: " ++ show (BS.toLazyByteString bs)
                   BS.hPutBuilder h bs)
             (do
@@ -283,9 +263,9 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
             auth
     serialCounter <- newTVarIO 1
     let getSerial = do
-            s <- readTVar serialCounter
-            writeTVar serialCounter (s+1)
-            return s
+            s' <- readTVar serialCounter
+            writeTVar serialCounter (s'+1)
+            return s'
     lock <- newTMVarIO $ BS.hPutBuilder h
     answerSlots <- newTVarIO (Map.empty :: AnswerSlots)
     signalSlots <- newTVarIO ([] :: SignalSlots)
@@ -302,7 +282,7 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                      writeTVar answerSlots Map.empty
                                      return sls
             atomically $ writeTVar signalSlots []
-            atomically $ forM_ (Map.elems slots) $ \s -> s . Left $
+            atomically $ forM_ (Map.elems slots) $ \s' -> s' . Left $
                                             [DBV $ DBVString "Connection Closed"]
     mfix $ \conn' -> do
         debugM "DBus" $ "Forking"
