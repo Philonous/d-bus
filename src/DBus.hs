@@ -11,6 +11,7 @@ module DBus
     , SignalHandler
     , checkAlive
     , waitFor
+    , close
 -- * Message handling
     , objectRoot
     , ignore

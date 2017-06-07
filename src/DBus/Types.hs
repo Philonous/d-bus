@@ -733,6 +733,7 @@ data DBusConnection =
         , gcRef :: !(TVar ())
           -- ^ A dummy TVar to which we attach a finalizer.
           -- When this TVar is garbage-collected, the connection is closed.
+        , dBusKillConnection :: IO ()
         }
 
 data MethodDescription args rets where

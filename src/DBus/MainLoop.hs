@@ -322,6 +322,11 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                   , dBusConnectionName = ""
                                   , connectionAliveRef = aliveRef
                                   , gcRef = fakeGcRef
+                                  , dBusKillConnection =
+                                      -- | Killing the handlerThread closes the
+                                      -- connection and all handlers
+                                      killThread handlerThread
+
                                   }
         debugM "DBus" $ "hello"
         connName <- hello conn
@@ -357,3 +362,9 @@ sendCredentials (MkSocket si _ _ _ _) = fromIntegral <$> sendCredentialsAndZero 
 #else
 sendCredentials s = send s "\0"
 #endif
+
+-- | Close the connection and finalize all handlers.
+--
+-- This is automatically done when the connection is garbage collected, but
+close :: DBusConnection -> IO ()
+close = dBusKillConnection
