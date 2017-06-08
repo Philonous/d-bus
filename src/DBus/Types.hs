@@ -725,12 +725,12 @@ data DBusConnection =
     DBusConnection
         { dBusCreateSerial :: STM Serial
         , dBusAnswerSlots :: TVar AnswerSlots
-        , dbusSignalSlots :: TVar SignalSlots
-        , dbusPropertySlots :: TVar PropertySlots
+        , dBusSignalSlots :: TVar SignalSlots
+        , dBusPropertySlots :: TVar PropertySlots
         , dBusWriteLock :: TMVar (BS.Builder -> IO ())
         , dBusConnectionName :: Text
-        , connectionAliveRef :: TVar Bool
-        , gcRef :: !(TVar ())
+        , dBusConnectionAliveRef :: TVar Bool
+        , dBusGcRef :: !(TVar ())
           -- ^ A dummy TVar to which we attach a finalizer.
           -- When this TVar is garbage-collected, the connection is closed.
         , dBusKillConnection :: IO ()

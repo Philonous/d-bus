@@ -192,7 +192,7 @@ handlePropertyChanged rp f' con = do
                            ++ "." ++ Text.unpack (rpName rp)
                 Just v -> f' (Just v)
         slot = Map.singleton (rpObject rp, rpInterface rp, rpName rp) [f]
-    atomically $ modifyTVar' (dbusPropertySlots con) (Map.unionWith (++) slot)
+    atomically $ modifyTVar' (dBusPropertySlots con) (Map.unionWith (++) slot)
     addMatch mr con
 
 propertyToTVar :: Representable a =>

@@ -182,14 +182,14 @@ objectRoot _ _ _ _ = return ()
 
 -- | Check whether connection is alive
 checkAlive :: DBusConnection -> IO Bool
-checkAlive conn = atomically $ readTVar (connectionAliveRef conn)
+checkAlive conn = atomically $ readTVar (dBusConnectionAliveRef conn)
 
 -- | Wait until connection is closed. The intended use is to keep alive servers
 waitFor :: DBusConnection -> IO ()
 waitFor conn = atomically $ do
-    alive <- readTVar (connectionAliveRef conn)
+    alive <- readTVar (dBusConnectionAliveRef conn)
     when alive retry
-    void $ readTVar (gcRef conn) -- avoid closing the connection prematurely
+    void $ readTVar (dBusGcRef conn) -- avoid closing the connection prematurely
 
 -- | Which Bus to connect to
 data ConnectionType = System -- ^ The well-known system bus. First
@@ -229,7 +229,7 @@ connectBus transport = connectBusWithAuth transport external
 --
 -- * A 'MethodCallHandler' that is invoked when a method call is received.
 --
--- * A SignalHandler that is invoked when a Mesage is received:
+-- * A SignalHandler that is invoked when a Signak is received:
 connectBusWithAuth :: ConnectionType -- ^ Bus to connect to
                    -> SASL BS.ByteString -- ^ The authentication mechanism
                    -> MethodCallHandler -- ^ Handler for incoming method calls
@@ -277,12 +277,13 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
     let kill = do
             atomically $ writeTVar aliveRef False
             hClose h
-            slots <- atomically $ do sls <- readTVar answerSlots
-                                     writeTVar answerSlots Map.empty
-                                     return sls
-            atomically $ writeTVar signalSlots []
-            atomically $ forM_ (Map.elems slots) $ \s' -> s' . Left $
-                                            [DBV $ DBVString "Connection Closed"]
+            atomically $ do
+              sls <- readTVar answerSlots
+              writeTVar answerSlots Map.empty
+              writeTVar signalSlots []
+              writeTVar propertySlots Map.empty
+              forM_ (Map.elems sls) $ \s' ->
+                s' . Left $ [DBV $ DBVString "Connection Closed"]
     -- In order not to retain a reference to gcRef in the connection thread,
     -- the DBusConnection in the connection thread (forked below) needs to
     -- contain a "fake" TVar (), different from the one to which the
@@ -316,12 +317,12 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
         addTVarFinalizer gcRef' $ killThread handlerThread
         let conn = DBusConnection { dBusCreateSerial = getSerial
                                   , dBusAnswerSlots = answerSlots
-                                  , dbusSignalSlots = signalSlots
-                                  , dbusPropertySlots = propertySlots
+                                  , dBusSignalSlots = signalSlots
+                                  , dBusPropertySlots = propertySlots
                                   , dBusWriteLock = lock
                                   , dBusConnectionName = ""
-                                  , connectionAliveRef = aliveRef
-                                  , gcRef = fakeGcRef
+                                  , dBusConnectionAliveRef = aliveRef
+                                  , dBusGcRef = fakeGcRef
                                   , dBusKillConnection =
                                       -- | Killing the handlerThread closes the
                                       -- connection and all handlers
@@ -332,7 +333,7 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
         connName <- hello conn
         debugM "DBus" $ "Done"
         return conn{dBusConnectionName = connName}
-    return conn{gcRef = gcRef'}
+    return conn{dBusGcRef = gcRef'}
 
   where
     addTVarFinalizer :: TVar a -> IO () -> IO ()

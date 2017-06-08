@@ -137,7 +137,7 @@ addSignalHandler :: MatchSignal
                  -> DBusConnection
                  -> IO ()
 addSignalHandler ms rules m dbc = do
-    atomically $ modifyTVar (dbusSignalSlots dbc) ((fromSlot ms, m):)
+    atomically $ modifyTVar (dBusSignalSlots dbc) ((fromSlot ms, m):)
     let rule = rules <> matchSignalToMatchRule ms
     addMatch rule dbc
   where
