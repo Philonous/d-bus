@@ -1,5 +1,5 @@
 name:                d-bus
-version:             0.1.6
+version:             0.1.7
 synopsis:            Permissively licensed D-Bus client library
 description:         This library uses modern extensions to the Haskell type system
                      (including GADTs, DataKinds and TypeFamilies) and the
