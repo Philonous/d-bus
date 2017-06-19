@@ -734,6 +734,8 @@ data DBusConnection =
           -- ^ A dummy TVar to which we attach a finalizer.
           -- When this TVar is garbage-collected, the connection is closed.
         , dBusKillConnection :: IO ()
+          -- ^ Killing the handlerThread closes the
+          -- connection and all handlers
         }
 
 data MethodDescription args rets where

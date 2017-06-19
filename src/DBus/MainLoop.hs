@@ -292,9 +292,9 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
     -- Originally, I tried to overwrite the gcRef after that thread
     -- is forked and set it to fakeGcRef. However, that didn't work:
     --
-    -- * We can't force evaluation of the DBusConnection in the forked
+    -- · We can't force evaluation of the DBusConnection in the forked
     --   thread; it makes the mfix diverge due to the lack of laziness.
-    -- * OTOH, if we don't force the DBusConnection, the update thunk
+    -- · OTOH, if we don't force the DBusConnection, the update thunk
     --   continues to hold the reference to the original DBusConnection, and,
     --   therefore, to the "true" gcRef.
     --
@@ -324,8 +324,6 @@ connectBusWithAuth transport auth handleCalls handleSignals = do
                                   , dBusConnectionAliveRef = aliveRef
                                   , dBusGcRef = fakeGcRef
                                   , dBusKillConnection =
-                                      -- | Killing the handlerThread closes the
-                                      -- connection and all handlers
                                       killThread handlerThread
 
                                   }
