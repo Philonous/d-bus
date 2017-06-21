@@ -5,7 +5,6 @@ module Main where
 
 import           Data.Char
 import           Data.Maybe (fromMaybe, listToMaybe)
-import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
 import           System.Environment
@@ -14,6 +13,7 @@ import           System.IO
 
 import           DBus
 
+main :: IO ()
 main = do
   args <- getArgs
   (bus, entity, root) <-
@@ -40,8 +40,8 @@ main = do
    Right r -> Text.putStrLn r
 
 showError :: MethodError -> String
-showError error@(MethodErrorMessage (message : _)) =
+showError err@(MethodErrorMessage (message : _)) =
   case message of
-   DBV (DBVString message) -> Text.unpack message
-   _ -> show error
-showError error = show error
+   DBV (DBVString msg) -> Text.unpack msg
+   _ -> show err
+showError err = show err

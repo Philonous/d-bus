@@ -6,9 +6,8 @@ module Main where
 
 import           DBus
 import           Data.Int
-import           Data.Text (Text)
-import qualified Data.Text as Text
 
+main :: IO ()
 main = do
   con <- connectClient Session
   result <- callMethod "net.sourceforge.liferea"
