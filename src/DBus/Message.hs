@@ -150,10 +150,10 @@ makeRepresentable ''HeaderField
 instance Representable Endian where
     type RepType Endian = 'DBusSimpleType 'TypeByte
     toRep Little = DBVByte $ fromIntegral $ ord 'l'
-    toRep Big    = DBVByte $ fromIntegral $ ord 'b'
+    toRep Big    = DBVByte $ fromIntegral $ ord 'B'
     fromRep (DBVByte x) = case chr (fromIntegral x) of
         'l' -> Just Little
-        'b' -> Just Big
+        'B' -> Just Big
         _ -> Nothing
 
 data MessageHeader =
