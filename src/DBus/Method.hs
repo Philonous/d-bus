@@ -26,12 +26,12 @@ class IsMethod f where
     type ResultType f :: [DBusType]
     toMethod :: f -> MethodWrapper (ArgTypes f) (ResultType f)
 
-instance SingI t => IsMethod (IO (DBusArguments t)) where
+instance SingI ts => IsMethod (IO (DBusArguments ts)) where
     type ArgTypes (IO (DBusArguments ts)) = '[]
     type ResultType (IO (DBusArguments ts)) = ts
     toMethod = MReturn. lift
 
-instance SingI t => IsMethod (MethodHandlerT IO (DBusArguments t)) where
+instance SingI ts => IsMethod (MethodHandlerT IO (DBusArguments ts)) where
     type ArgTypes (MethodHandlerT IO (DBusArguments ts)) = '[]
     type ResultType (MethodHandlerT IO (DBusArguments ts)) = ts
     toMethod = MReturn
