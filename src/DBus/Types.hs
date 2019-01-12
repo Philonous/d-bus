@@ -1,3 +1,6 @@
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -435,7 +438,7 @@ instance Eq (DBusValue t) where
     DBVVariant (x ::DBusValue s1) ==  DBVVariant (y ::DBusValue s2) =
         let xt = sing :: Sing s1
             yt = sing :: Sing s2
-        in case xt %:== yt of -- Should be %~
+        in case xt %== yt of -- Should be %~
            STrue  -> (unsafeCoerce x :: DBusValue t) == (unsafeCoerce y)
            SFalse -> False
 
@@ -641,15 +644,17 @@ data Interface = Interface { interfaceMethods :: [Method]
                            , interfaceProperties :: [SomeProperty]
                            }
 
+instance Semigroup Interface where
+    (Interface m1 a1 s1 p1) <> (Interface m2 a2 s2 p2) =
+        Interface (m1 <> m2) (a1 <> a2) (s1 <> s2) (p1 <> p2)
 instance Monoid Interface where
     mempty = Interface [] [] [] []
-    (Interface m1 a1 s1 p1) `mappend` (Interface m2 a2 s2 p2) =
-        Interface (m1 <> m2) (a1 <> a2) (s1 <> s2) (p1 <> p2)
 
 newtype Object = Object {interfaces :: Map Text Interface }
 instance Monoid Object where
     mempty = Object Map.empty
-    mappend (Object o1) (Object o2) = Object $ Map.unionWith (<>) o1 o2
+instance Semigroup Object where
+    (<>) (Object o1) (Object o2) = Object $ Map.unionWith (<>) o1 o2
 
 object :: Text -> Interface -> Object
 object interfaceName iface = Object $ Map.singleton interfaceName iface
@@ -659,7 +664,8 @@ newtype Objects = Objects {unObjects :: Map ObjectPath Object}
 
 instance Monoid Objects where
     mempty = Objects Map.empty
-    mappend (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2
+instance Semigroup Objects where
+    (<>) (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2
 
 root :: ObjectPath -> Object -> Objects
 root path obj = Objects $ Map.singleton path obj
