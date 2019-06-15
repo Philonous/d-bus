@@ -9,7 +9,6 @@ import qualified Data.ByteString.Lazy             as BSL
 import qualified Data.ByteString.Lazy.Builder     as BS
 import           Data.Char
 import qualified Data.IntMap                      as IMap
-import           Data.Monoid
 import qualified Data.Text                        as Text
 
 import           DBus.Types

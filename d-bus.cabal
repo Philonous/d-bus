@@ -40,7 +40,7 @@ library
                    , DBus.Scaffold
   build-depends:     async >= 2.0
                    , attoparsec >= 0.12
-                   , base >= 4 && <5
+                   , base >= 4.9 && <5
                    , binary >= 0.8.1.0
                    , blaze-builder >= 0.3
                    , bytestring >= 0.10
@@ -71,13 +71,16 @@ library
 
   default-extensions: DataKinds
                     , DeriveDataTypeable
+                    , EmptyCase
                     , FlexibleContexts
+                    , FlexibleInstances
                     , GADTs
                     , KindSignatures
                     , OverloadedStrings
                     , PolyKinds
                     , ScopedTypeVariables
                     , TypeFamilies
+                    , TypeSynonymInstances
 
 executable dbus-introspect
   hs-source-dirs:    dbus-introspect

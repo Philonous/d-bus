@@ -16,7 +16,6 @@ import qualified Data.ByteString as BS
 import           Data.Char
 import           Data.Default
 import           Data.Maybe (fromMaybe, catMaybes)
-import           Data.Monoid
 import           Data.Singletons
 import           Data.Singletons.Prelude.List
 import           Data.Text (Text)

@@ -8,7 +8,6 @@ import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Reader
-import           Control.Monad.Writer
 import qualified Data.Foldable as Foldable
 import qualified Data.Map as Map
 import           Data.Singletons
