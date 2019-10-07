@@ -17,16 +17,16 @@ The possible types are:
     * Array (variable-length collection of values of the same type)
     * Structs (aka tuples)
     * Dicts (aka Map) where the key has to be a simple type
-    * Variant (dynamicly typed values)
+    * Variant (dynamically typed values)
 
 See also the
 [D-Bus specification](https://dbus.freedesktop.org/doc/dbus-specification.html#type-system)
 for more information.
 
-DBus values are represented by the GADT `DBusValue`. Every value is annotated with its `DBusType` This ensure that we
-can always create a type signature, even for empty arrays. It also insures that
+DBus values are represented by the GADT `DBusValue`. Every value is annotated with its `DBusType`. This ensures that we
+can always create a type signature, even for empty arrays. It also ensures that
 all elements of an array are of the same type and we hence know that every
-constructable value has a sound type in D-Bus' type system
+constructable value has a sound type in D-Bus' type system.
 
 For example, we have
 
@@ -40,12 +40,12 @@ Note that `DBusSimpleType TypeByte` is a Haskell _value_ promoted to the type le
 
 ### Representable Types
 
-Because we wou;d usually prefer to work with Haskell's type system rather than
+Because we would usually prefer to work with Haskell's type system rather than
 the (somewhat cumbersome) D-Bus types, d-bus provides the `Representable` type
 class for easy translation between Haskell and D-Bus types.
 
-Two write an instance of Representable, we have to provide three pieces of information:
-* The D-Bus type a Haskell type should map to (Many haskell types can map to a
+To write an instance of `Representable`, we have to provide three pieces of information:
+* The D-Bus type a Haskell type should map to (Many Haskell types can map to a
   DBusType, but every Haskell type can only map to one DBus type).
 * A function to convert a Haskell-value to a D-Bus value
 * A function to parse a D-Bus value back to a Haskell value (may fail)
@@ -80,9 +80,9 @@ other length, as that would be a type error)
 
 ### Automatically generating Representable instances
 
-Most Representable instances are boring. For example, there's only one "obivous"
+Most Representable instances are boring. For example, there's only one "obvious"
 way to translate our `Foo` type to D-Bus. So it would be convenient if we could
-automate the creation of Representable instances, and indeed we can, with a little Template Haskell:
+automate the creation of `Representable` instances, and indeed we can, with a little Template Haskell:
 
 ```haskell
 data Foo = Foo Bool Text
@@ -90,14 +90,14 @@ data Foo = Foo Bool Text
 makeRepresentable ''Foo
 ```
 
-will create the same instance as we have writte above. For a more in-depth
+will create the same instance as we have written above. For a more in-depth
 discussion of the rules of how those instances are generated, consult the
 documentation of `makeRepresentable`
 
 ## Creating a connection
 
 Before we can talk to another D-Bus entity, we need to connect to a message bus
-and create `DBusConnection`. to do this, we call the `connectClient` function.
+and create `DBusConnection`. To do this, we call the `connectClient` function.
 It takes an argument of type `ConnectionType` that determines which message bus we
 will connect to and can be one of `System`, `Session` and `Address`, where
 `System` and `Session` connect to the system and session bus
@@ -240,13 +240,13 @@ refresh :: MethodDescription '[] '['DBusSimpleType 'TypeBoolean]
 
 ### Calling method descriptions
 
-Once we have obtained our methodDescrition, calling it is as easy as
+Once we have obtained our methodDescription, calling it is as easy as
 
 ```haskell
 call getUnreadItems "net.sourceforge.liferea" () [] con
 ```
 
-That is, appart from the method description we only have to pass in
+That is, apart from the method description we only have to pass in
 * The entity name we want to call
 * The arguments (Still none, in our case)
 * Flags
