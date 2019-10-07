@@ -5,7 +5,7 @@
 sudo: false
 
 # Choose a lightweight base image; we provide our own build tools.
-language: c
+language: generic
 
 # Caching so the next build will be fast too.
 cache:
@@ -14,15 +14,15 @@ cache:
 
 matrix:
   include:
-  - env: BUILD=stack ARGS="--resolver lts-6"
-    compiler: ": #stack ghc 7.10.3"
-    addons: {apt: {packages: [libgmp,libgmp-dev]}}
-  - env: BUILD=stack ARGS="--resolver lts-7"
-    compiler: ": #stack ghc 8.0.1"
-    addons: {apt: {packages: [libgmp,libgmp-dev]}}
+  - env: BUILD=stack ARGS="--resolver lts-13"
+    compiler: ": #stack ghc 8.6.4"
+    addons: {apt: {packages: [libgmp-dev]}}
+  - env: BUILD=stack ARGS="--resolver lts-14"
+    compiler: ": #stack ghc 8.6.5"
+    addons: {apt: {packages: [libgmp-dev]}}
   - env: BUILD=stack ARGS="--resolver nightly"
     compiler: ": #stack nightly"
-    addons: {apt: {packages: [libgmp,libgmp-dev]}}
+    addons: {apt: {packages: [libgmp-dev]}}
   allow_failures:
   - env: BUILD=stack ARGS="--resolver nightly"
 
@@ -33,7 +33,10 @@ before_install:
 # Download and unpack the stack executable
 - export PATH=$HOME/.local/bin:$PATH
 - mkdir -p ~/.local/bin
-- travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+- travis_retry curl -L https://get.haskellstack.org/stable/linux-x86_64.tar.gz 4 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+
+install:
+- stack --no-terminal --install-ghc test --only-dependencies
 
 script:
-- stack --no-terminal --install-ghc $ARGS test --haddock --no-haddock-deps
+- stack --no-terminal $ARGS test --haddock --no-haddock-deps
