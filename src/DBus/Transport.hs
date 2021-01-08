@@ -15,7 +15,6 @@ import           Data.List as List
 import qualified Data.Text as Text
 import           Data.Text.Encoding as Text
 import           Data.Word
-import           Network
 import           Network.Socket
 
 import           DBus.Auth

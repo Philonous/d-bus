@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -25,13 +26,11 @@ import           Control.Monad.Writer.Strict
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as BS
 import           Data.Data (Data)
-import           Data.Function (fix, on)
+import           Data.Function (on)
 import           Data.Int
 import           Data.List
-import           Data.List (intercalate)
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Singletons (withSingI)
 import           Data.Singletons.Prelude.Bool
 import           Data.Singletons.Prelude.List hiding (Map)
 import           Data.Singletons.TH hiding (Error)
@@ -191,7 +190,7 @@ singletons [d|
   flattenRepType t@(TypeArray _)  = [t]
   flattenRepType t@(TypeDict _ _)  = [t]
   flattenRepType t@(TypeDictEntry _ _)  = [t]
-  flattenRepType t@(TypeVariant)  = [t]
+  flattenRepType t@TypeVariant = [t]
   |]
 
 
@@ -287,7 +286,7 @@ deriving instance Show SomeSignalDescription
 instance Eq SomeSignalDescription where
     (SSD (x :: SignalDescription a)) == (SSD (y :: SignalDescription b))
         = case (sing  :: Sing a) %~ (sing :: Sing b) of
-           Proved (Refl{}) -> x == y
+           Proved Refl{} -> x == y
            Disproved{} -> False
 
 type family ArgsOf x :: Parity where
@@ -369,7 +368,7 @@ instance SingI a => Show (DBusArguments a) where
     show xs = showArgs sing xs
 
 showArgs :: Sing a -> DBusArguments a -> String
-showArgs (SNil) ArgsNil = "ArgsNil"
+showArgs SNil ArgsNil = "ArgsNil"
 showArgs (SCons t ts) (ArgsCons x xs) =
     withSingI t $ "ArgsCons (" ++ show x  ++ ") (" ++ showArgs ts xs ++ ")"
 
@@ -438,10 +437,9 @@ instance Eq (DBusValue t) where
     DBVVariant (x ::DBusValue s1) ==  DBVVariant (y ::DBusValue s2) =
         let xt = sing :: Sing s1
             yt = sing :: Sing s2
-        in case xt %== yt of -- Should be %~
-           STrue  -> (unsafeCoerce x :: DBusValue t) == (unsafeCoerce y)
-           SFalse -> False
-
+        in case xt %~ yt of
+          Proved Refl -> x == y
+          Disproved _ -> False
     DBVArray      x ==  DBVArray      y = x == y
     DBVByteArray  x ==  DBVByteArray  y = x == y
     DBVStruct     x ==  DBVStruct     y = x == y
@@ -455,7 +453,7 @@ castDBV (v :: DBusValue s)
     = fix $ \(_ :: Maybe (DBusValue t)) ->
         let ss = (sing :: Sing s)
             st = (sing :: Sing t)
-        in case (ss %~ st) of
+        in case ss %~ st of
             Proved Refl -> Just v
             Disproved _ -> Nothing
 
@@ -656,9 +654,6 @@ newtype Object = Object {interfaces :: Map Text Interface }
 instance Semigroup Object where
     Object o1 <> Object o2 = Object $ Map.unionWith (<>) o1 o2
 
-instance Semigroup Object where
-    (<>) (Object o1) (Object o2) = Object $ Map.unionWith (<>) o1 o2
-
 instance Monoid Object where
     mempty = Object Map.empty
 
@@ -670,9 +665,6 @@ newtype Objects = Objects {unObjects :: Map ObjectPath Object}
 
 instance Semigroup Objects where
     Objects o1 <> Objects o2 = Objects $ Map.unionWith (<>) o1 o2
-
-instance Semigroup Objects where
-    (<>) (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2
 
 instance Monoid Objects where
     mempty = Objects Map.empty
@@ -722,11 +714,13 @@ data MatchSignal = MatchSignal { matchInterface :: Maybe Text
 anySignal :: MatchSignal
 anySignal = MatchSignal Nothing Nothing Nothing Nothing
 
-type SignalSlots = [ (( Match Text
-                      , Match Text
-                      , Match ObjectPath
-                      , Match Text)
-                     , (SomeSignal -> IO ())) ]
+type SignalSlots = [ ( ( Match Text
+                       , Match Text
+                       , Match ObjectPath
+                       , Match Text
+                       )
+                     , SomeSignal -> IO ()
+                     ) ]
 
 type PropertySlots = Map ( ObjectPath
                          , Text -- Interface

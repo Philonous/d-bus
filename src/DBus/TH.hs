@@ -111,7 +111,7 @@ makeRepresentable name = do
             [(conName, fields)] -> oneCon conName fields
             cs' -> multiCon cs'
     inst <- instanceD ctx iHead
-        [ tySynInstD ''RepType $ tySynEqn [fullType] repType
+        [ tySynInstD $ tySynEqn Nothing (appT (conT ''RepType) fullType) repType
         , funD 'toRep toClauses
         , funD 'fromRep fromClauses
         ]
@@ -222,7 +222,7 @@ makeRepresentableTuple num = do
     varNames <- replicateM num (newName "x")
     tmpNames <- replicateM num (newName "mbx")
     instanceD ctx iHead
-        [ tySynInstD ''RepType $ tySynEqn [tp]
+        [ tySynInstD $ tySynEqn Nothing (appT (conT ''RepType) tp)
                       (appT (promotedT 'TypeStruct) tpList)
         , funD ('toRep) $ let
                pats = [tupP (map varP varNames)]

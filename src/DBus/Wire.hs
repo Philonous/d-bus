@@ -144,7 +144,7 @@ putSignatures :: [DBusType] -> RWST Endian BS.Builder Int Identity ()
 putSignatures s = do
     let bs = toSignatures s
         len = BS.length bs
-    when (len > 255) $ fail "Signature too long"
+    when (len > 255) $ error "Signature too long"
     putWord8 $ fromIntegral len
     putByteString bs
     putWord8 0

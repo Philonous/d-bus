@@ -31,7 +31,7 @@ data ServerMessage = SMRejected [BS.ByteString]
                      deriving (Show)
 
 space :: AP.Parser BS.ByteString -> AP.Parser BS.ByteString
-space x = (AP8.char8 ' ' >> x) `mplus` (return "")
+space x = (AP8.char8 ' ' >> x) `mplus` return ""
 
 
 parseHexString :: AP.Parser BS.ByteString
@@ -166,7 +166,6 @@ runSasl snd' rcv' (SASL s) = do
                           "Could not parse server message" ++ show bs
                                      ++ ": " ++ show e
                 Right r -> return r
-    return ()
     res <- go sd rcv (runExceptT s)
     case res of
         Left e -> do
