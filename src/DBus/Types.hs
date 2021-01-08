@@ -1,3 +1,6 @@
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -653,6 +656,9 @@ newtype Object = Object {interfaces :: Map Text Interface }
 instance Semigroup Object where
     Object o1 <> Object o2 = Object $ Map.unionWith (<>) o1 o2
 
+instance Semigroup Object where
+    (<>) (Object o1) (Object o2) = Object $ Map.unionWith (<>) o1 o2
+
 instance Monoid Object where
     mempty = Object Map.empty
 
@@ -664,6 +670,9 @@ newtype Objects = Objects {unObjects :: Map ObjectPath Object}
 
 instance Semigroup Objects where
     Objects o1 <> Objects o2 = Objects $ Map.unionWith (<>) o1 o2
+
+instance Semigroup Objects where
+    (<>) (Objects o1) (Objects o2) = Objects $ Map.unionWith (<>) o1 o2
 
 instance Monoid Objects where
     mempty = Objects Map.empty
